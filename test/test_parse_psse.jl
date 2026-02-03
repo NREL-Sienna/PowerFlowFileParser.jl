@@ -8,8 +8,7 @@
         @info "Parsing $f ..."
         pm_data = PowerModelsData(joinpath(PSSE_RAW_DIR, f))
         @info "Successfully parsed $f to PowerModelsData"
-        # sys = PowerFlowFileParser.System(pm_data)
-        sys = System(pm_data)
+        sys = PowerFlowFileParser.System(pm_data)
         for g in get_components(Generator, sys)
             @test haskey(get_ext(g), "r")
             @test haskey(get_ext(g), "x")
@@ -20,6 +19,5 @@
     # Test bad input
     pm_data = PowerModelsData(joinpath(PSSE_RAW_DIR, files[1]))
     pm_data.data["bus"] = Dict{String, Any}()
-    # @test_throws DataFormatError PowerFlowFileParser.System(pm_data)
-    @test_throws DataFormatError System(pm_data)
+    @test_throws DataFormatError PowerFlowFileParser.System(pm_data)
 end

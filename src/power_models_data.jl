@@ -21,7 +21,7 @@ function PowerModelsData(file::Union{String, IO}; kwargs...)
     correct_pm_transformer_status!(pm_data)
     return pm_data
 end
-#=
+
 """
 Constructs a System from PowerModelsData.
 
@@ -83,7 +83,7 @@ function System(pm_data::PowerModelsData; kwargs...)
 
     return sys
 end
-=#
+
 function correct_pm_transformer_status!(pm_data::PowerModelsData)
     for (k, branch) in pm_data.data["branch"]
         f_bus_bvolt = pm_data.data["bus"][branch["f_bus"]]["base_kv"]

@@ -10,7 +10,7 @@ Currently Supports PSSE data files v30, v32 and v33
 function PowerFlowDataNetwork(file::Union{String, IO}; kwargs...)
     return PowerFlowDataNetwork(PowerFlowData.parse_network(file))
 end
-#=
+
 """
 Constructs a System from PowerModelsData.
 
@@ -104,7 +104,7 @@ function System(net_data::PowerFlowDataNetwork; kwargs...)
     end
     return sys
 end
-=#
+
 function read_bus!(
     sys::System,
     buses::PowerFlowData.Buses33,
