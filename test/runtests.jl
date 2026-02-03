@@ -1,12 +1,28 @@
 using Test
-import Logging
+using Logging
+import PowerSystemCaseBuilder as PSB
+import InfrastructureSystems as IS
+import InfrastructureSystems: DataFormatError
+import PowerSystems as PSY
+import PowerSystems:
+    System,
+    get_components,
+    Generator,
+    get_ext
+
+using PowerFlowFileParser
 
 import Aqua
-Aqua.test_unbound_args(SiennaTemplate)
-Aqua.test_undefined_exports(SiennaTemplate)
-Aqua.test_ambiguities(SiennaTemplate)
-Aqua.test_stale_deps(SiennaTemplate)
-Aqua.test_deps_compat(SiennaTemplate)
+Aqua.test_unbound_args(PowerFlowFileParser)
+Aqua.test_undefined_exports(PowerFlowFileParser)
+Aqua.test_ambiguities(PowerFlowFileParser)
+Aqua.test_stale_deps(PowerFlowFileParser)
+Aqua.test_deps_compat(PowerFlowFileParser)
+
+const DATA_DIR = PSB.DATA_DIR
+const MATPOWER_DIR = joinpath(DATA_DIR, "matpower")
+const PSSE_RAW_DIR = joinpath(DATA_DIR, "psse_raw")
+const BAD_DATA = joinpath(DATA_DIR, "bad_data_for_tests")
 
 LOG_FILE = "power-systems.log"
 LOG_LEVELS = Dict(
