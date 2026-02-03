@@ -9,6 +9,7 @@ export PowerModelsData
 export PowerFlowDataNetwork
 export System # this function is tested as PowerFlowFileParser.System to disambiguate from PowerSystems.System
 export parse_file
+export make_database
 
 #################################################################################
 # Imports
@@ -19,8 +20,8 @@ import DataStructures: SortedDict
 # import CSV
 # import DataFrames
 # import JSON3
-# import SiennaOpenAPIModels
-# import SQLite
+import SiennaOpenAPIModels
+import SQLite
 import Unicode: normalize
 import YAML
 
@@ -90,7 +91,14 @@ import PowerSystems:
     EnergyReservoirStorage,
     LinearCurve,
     TwoTerminalGenericHVDCLine,
-    StorageTech
+    StorageTech,
+    ImpedanceCorrectionTransformerControlMode,
+    add_supplemental_attribute!,
+    SwitchedAdmittance,
+    TwoTerminalLCCLine,
+    FACTSControlDevice,
+    Transformer3W,
+    PhaseShiftingTransformer3W
 
 import InfrastructureSystems:
     DataFormatError
