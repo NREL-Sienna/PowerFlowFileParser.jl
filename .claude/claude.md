@@ -5,7 +5,9 @@
 
 ## Overview
 
-PowerFlowFileParser.jl is a specialized library for parsing and converting text-based power flow file formats into PowerSystems.jl data structures. This library serves as a critical bridge between legacy power system data formats (MATPOWER, PSS/E) and modern Julia-based power system analysis tools in the Sienna ecosystem.
+PowerFlowFileParser.jl is a specialized library for parsing text-based power flow file formats into simple intermediate data representations. This library serves as a critical bridge between legacy power system data formats (MATPOWER, PSS/E) and modern Julia-based power system analysis tools in the Sienna ecosystem.
+
+**Architectural Principle**: The core parsing functionality in this repository should **NOT** require PowerSystems.jl as a dependency. The parser's responsibility is to convert text files into simple, well-structured dictionary or struct representations. Any conversion to PowerSystems.jl typed components should be handled by PowerSystems.jl itself or by separate integration code.
 
 For general Sienna coding practices, conventions, and performance guidelines, see [.claude/Sienna.md](.claude/Sienna.md).
 
@@ -27,23 +29,23 @@ PowerFlowFileParser can parse and convert the following text-based power flow fi
 The library provides two main parsing pathways:
 
 #### 1. PowerModels-based Pipeline
-- **Entry Point**: `PowerModelsData(file)` constructor
+- **Entry Point**: `parse_file(file)` or `PowerModelsData(file)` constructor
 - **Input**: MATPOWER (.m) or PSS/E (.raw) files
 - **Process**:
   1. Parse text file using format-specific parser
   2. Convert to PowerModels intermediate dictionary representation
   3. Apply data corrections and validation
-  4. Build PowerSystems.System object with typed components
-- **Output**: PowerSystems.System or PowerModelsData container
+- **Output**: Dictionary with standardized power system data (PowerModelsData container)
 
 #### 2. PowerFlowData-based Pipeline
 - **Entry Point**: `PowerFlowDataNetwork(file)` constructor
 - **Input**: PSS/E RAW files (versions 30, 32, 33)
 - **Process**:
   1. Parse using PowerFlowData.jl native parser
-  2. Convert directly to PowerSystems typed components
-- **Output**: PowerSystems.System or PowerFlowDataNetwork container
+  2. Store in PowerFlowData.Network typed structs
+- **Output**: PowerFlowDataNetwork container with parsed component data
 
+**Note**: The parsing logic produces simple intermediate representations (dictionaries or lightweight structs). Conversion to PowerSystems.jl typed components is a separate concern that should be handled downstream.
 ### Power System Components
 
 The parser handles comprehensive power system modeling including:
@@ -94,23 +96,21 @@ PowerFlowFileParser.jl/
 ### Source Code Details
 
 #### Main Module (`src/PowerFlowFileParser.jl`)
-- Defines module exports: `PowerModelsData`, `PowerFlowDataNetwork`, `System`, `parse_file`, `make_database`
-- Imports dependencies: PowerSystems, PowerFlowData, InfrastructureSystems, SQLite, etc.
-- Imports PowerSystems component types for construction
+- Defines module exports: `PowerModelsData`, `PowerFlowDataNetwork`, `parse_file`, `make_database`
+- **Core parsing code should minimize imports** - avoid PowerSystems.jl types in parsing logic
+- Current implementation has PowerSystems imports that should be refactored into separate integration layer
 
 #### Core Data Structures
 
 **`src/power_models_data.jl`**
-- `PowerModelsData`: Container wrapping PowerModels dictionary format
-- `System(::PowerModelsData)`: Constructor converting PM data to PowerSystems.System
-- Component readers for each power system element type
-- Data correction functions for transformer status, voltage levels
+- `PowerModelsData`: Simple container wrapping PowerModels dictionary format
+- Should focus on data validation and correction, not PowerSystems.jl type construction
+- Component readers should produce dictionaries, not typed PowerSystems components
 
 **`src/powerflowdata_data.jl`**
 - `PowerFlowDataNetwork`: Container wrapping PowerFlowData.Network format
-- `System(::PowerFlowDataNetwork)`: Alternative constructor using PowerFlowData parser
-- Direct conversion from PowerFlowData structures to PowerSystems components
-
+- Provides access to parsed structs from PowerFlowData.jl
+- Keep conversion logic separate from core parsing
 #### Parser Implementations
 
 **`src/pm_io/` - PowerModels IO Pathway**
@@ -179,65 +179,98 @@ Tests validate:
 
 ## Usage Patterns
 
-### Basic Parsing and Conversion
+### Core Parsing (Pure Data Extraction)
 
 ```julia
 using PowerFlowFileParser
 
-# Parse MATPOWER file
-pm_data = PowerModelsData("case30.m")
-sys = System(pm_data)
-
-# Parse PSS/E RAW file
-pfd_data = PowerFlowDataNetwork("network.raw")
-sys = System(pfd_data)
-
-# Direct file parsing
+# Parse MATPOWER file to dictionary
 pm_dict = parse_file("case30.m")
-sys = System(PowerModelsData(pm_dict))
+# Returns: Dict{String, Any} with keys like "bus", "gen", "branch", "baseMVA", etc.
+
+# Parse PSS/E RAW file to dictionary
+pm_dict = parse_file("network.raw")
+# Returns: Dict{String, Any} in PowerModels format
+
+# Wrap in container for convenience
+pm_data = PowerModelsData("case30.m")
+# Access: pm_data.data["bus"], pm_data.data["gen"], etc.
+
+# Alternative: Use PowerFlowData parser
+pfd_data = PowerFlowDataNetwork("network.raw")
+# Access: pfd_data.data.buses, pfd_data.data.generators, etc.
 ```
 
-### Advanced Options
+### Advanced Parsing Options
 
 ```julia
 # Control data validation and corrections
-pm_data = PowerModelsData(
+pm_dict = parse_file(
     "case.raw",
-    pm_data_corrections = true,     # Apply PowerModels corrections
     import_all = false,              # Import only essential fields
+    validate = true,                 # Apply data corrections
     correct_branch_rating = true     # Fix branch thermal ratings
 )
 
-# Build System with custom settings
-sys = System(
-    pm_data,
-    runchecks = true,                # Run component validation
-    time_series_in_memory = false,   # Store time series in HDF5
-    config_path = "validation.json"  # Custom validation config
+# Or using PowerModelsData constructor
+pm_data = PowerModelsData(
+    "case.raw",
+    pm_data_corrections = true,      # Apply PowerModels corrections
+    import_all = false,              # Import only essential fields
+    correct_branch_rating = true     # Fix branch thermal ratings
 )
+```
 
-# Export to database
-make_database(sys, "power_system.sqlite")
+### Integration with PowerSystems.jl (Downstream)
+
+**Note**: The following System construction should ideally be handled by PowerSystems.jl or a separate integration package, not by this parser library:
+
+```julia
+# This integration code should move to PowerSystems.jl
+using PowerSystems
+
+# PowerSystems.jl should provide constructors like:
+sys = System(pm_data)  # Handled by PowerSystems, not this parser
 ```
 
 ## Key Dependencies
 
-- **PowerSystems.jl**: Target data structure and component types
-- **PowerFlowData.jl**: Alternative PSS/E parser
-- **InfrastructureSystems.jl**: Base infrastructure for System objects
-- **SiennaOpenAPIModels.jl**: Database serialization
+### Core Parsing Dependencies (should be minimal)
 - **DataStructures.jl**: Sorted dictionaries for component ordering
-- **SQLite.jl**: Database export functionality
 - **YAML.jl**: Configuration file parsing
+
+### Integration/Extension Dependencies (separate from core parsing)
+- **PowerFlowData.jl**: Alternative PSS/E parser pathway
+- **PowerSystems.jl**: ⚠️ Should NOT be required by core parsing code
+- **InfrastructureSystems.jl**: ⚠️ Should be used only in integration layers
+- **SiennaOpenAPIModels.jl**: Database serialization (extension functionality)
+- **SQLite.jl**: Database export functionality (extension functionality)
+
+**Refactoring Goal**: Move any PowerSystems.jl dependencies out of the core parsing logic (`pm_io/`, `im_io/`) and into separate integration modules or downstream packages.
 
 ## Design Philosophy
 
-The library follows a two-stage conversion process:
-1. **Parse**: Text file → Intermediate representation (Dict or typed struct)
-2. **Build**: Intermediate representation → PowerSystems.System with typed components
+### Separation of Concerns
 
-This approach allows:
-- Format-specific optimization in parsing stage
-- Consistent validation and correction in intermediate stage
-- Reusable component construction logic for System building
-- Easy debugging by inspecting intermediate representations
+The library maintains a clear separation between parsing and system construction:
+
+1. **Parse**: Text file → Intermediate representation (Dict or typed struct)
+   - This is the primary responsibility of PowerFlowFileParser.jl
+   - Should NOT depend on PowerSystems.jl types
+   - Produces simple, well-documented data structures
+
+2. **Build**: Intermediate representation → PowerSystems.System with typed components
+   - This conversion should be handled by PowerSystems.jl or integration code
+   - Not the core responsibility of this parsing library
+
+### Benefits of This Approach
+
+- **Independence**: Parser remains lightweight and doesn't depend on heavy simulation packages
+- **Reusability**: Parsed data can be consumed by multiple downstream packages
+- **Testability**: Parsing logic can be tested without PowerSystems.jl infrastructure
+- **Maintainability**: Changes to PowerSystems.jl types don't require parser updates
+- **Debugging**: Easy to inspect intermediate representations without type conversions
+
+### Current State vs. Target Architecture
+
+**Note**: The current codebase may still contain PowerSystems.jl dependencies in some integration code. The architectural goal is to refactor toward keeping the core parsing logic (in `pm_io/` and `im_io/`) independent of PowerSystems.jl, with only the data containers (`PowerModelsData`, `PowerFlowDataNetwork`) being simple wrappers around dictionaries or structs.

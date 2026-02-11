@@ -1,38 +1,3 @@
-# this function would be exactly the same for both System(PowerModelsData) and
-# System(PowerFlowNetworkData) so it feels redundant to put in both power*.jl
-# files. Instead I'm putting it here, but this also doesnt feel like the right
-# place for it
-
-"""
-Function that creates a database from System.
-
-"""
-function make_database(sys::System, database_name::Union{String, Nothing})
-
-    # making sure that database_name isn't an existing file
-    if isfile(database_name) || isfile(string(database_name, ".sqlite"))
-        error("database with this name already exists")
-    # creating database file name with .sqlite extension
-    elseif !isfile(database_name)
-        if !endswith(database_name, ".sqlite")
-            database_name = string(database_name, ".sqlite")
-        elseif endswith(database_name, ".sqlite")
-            database_name = database_name
-        end
-    end
-
-    # making database, with time series, if given
-    db = SQLite.DB(database_name)
-    SiennaOpenAPIModels.make_sqlite!(db)
-    ids = SiennaOpenAPIModels.IDGenerator()
-    SiennaOpenAPIModels.sys2db!(db, sys, ids)
-    #TODO (this repo and PowerTableDataParser) this check should already be
-    #built in to serialize_timeseries!()
-    if IS.get_num_time_series(sys.data) !== 0
-        SiennaOpenAPIModels.serialize_timeseries!(db, sys, ids)
-    end
-end
-
 const GENERATOR_MAPPING_FILE_PM =
     joinpath(dirname(pathof(PowerSystems)), "parsers", "generator_mapping_pm.yaml")
 
@@ -55,7 +20,7 @@ merge!(
         "sync_cond" => ThermalFuels.OTHER,
         "geothermal" => ThermalFuels.GEOTHERMAL,
         "ag_byproduct" => ThermalFuels.AG_BYPRODUCT,
-    ),  
+    ),
 )
 
 const STRING2PRIMEMOVER =
@@ -88,7 +53,7 @@ generator types."""
 function get_generator_mapping(filename::String)
     genmap = open(filename) do file
         YAML.load(file)
-    end 
+    end
 
     mappings = Dict{NamedTuple, DataType}()
     for (gen_type, vals) in genmap
@@ -97,15 +62,15 @@ function get_generator_mapping(filename::String)
             gen = EnergyReservoirStorage
         else
             gen = getfield(PowerSystems, Symbol(gen_type))
-        end 
+        end
         for val in vals
             key = (fuel = val["fuel"], unit_type = val["type"])
             if haskey(mappings, key)
                 error("duplicate generator mappings: $gen $(key.fuel) $(key.unit_type)")
-            end 
-            mappings[key] = gen 
-        end 
-    end 
+            end
+            mappings[key] = gen
+        end
+    end
 
     return mappings
 end
