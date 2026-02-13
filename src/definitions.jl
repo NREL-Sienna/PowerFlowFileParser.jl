@@ -1,13 +1,20 @@
-# copied from PowerSystems/src/definitions.jl
+
+
+const SKIP_PM_VALIDATION = false
+
+const PSSE_PARSER_TAP_RATIO_UBOUND = 1.5
+const PSSE_PARSER_TAP_RATIO_LBOUND = 0.5
+const INFINITE_BOUND = 1e6
 
 const PS_MAX_LOG = parse(Int, get(ENV, "PS_MAX_LOG", "50"))
 
 const BRANCH_BUS_VOLTAGE_DIFFERENCE_TOL = 0.01
 
+# Winding names for three-winding transformers
 const WINDING_NAMES = Dict(
-    WindingCategory.PRIMARY_WINDING => "primary",
-    WindingCategory.SECONDARY_WINDING => "secondary",
-    WindingCategory.TERTIARY_WINDING => "tertiary",
+    1 => "primary",
+    2 => "secondary",
+    3 => "tertiary",
 )
 
 const TRANSFORMER3W_PARAMETER_NAMES = [

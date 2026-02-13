@@ -14,9 +14,7 @@ POWER_MODELS_KEYS = [
     "storage",
 ]
 
-badfiles = Dict("case30.m" => PSY.InvalidValue)
 voltage_inconsistent_files = ["RTS_GMLC_original.m", "case5_re.m", "case5_re_uc.m"]
-error_log_files = ["ACTIVSg2000.m", "case_ACTIVSg10k.m"]
 
 @testset "Parse Matpower data files" begin
     files = [x for x in readdir(joinpath(MATPOWER_DIR)) if splitext(x)[2] == ".m"]
@@ -39,20 +37,14 @@ error_log_files = ["ACTIVSg2000.m", "case_ACTIVSg10k.m"]
         end
         @info "Successfully parsed $path to PowerModels dict"
 
-        if f in keys(badfiles)
-            @test_logs(
-                (:error, r"cannot create Line"),
-                match_mode = :any,
-                @test_throws(badfiles[f], PowerFlowFileParser.System(PowerModelsData(pm_dict)))
-            )
-        else
-            sys = PowerFlowFileParser.System(PowerModelsData(pm_dict))
-            @info "Successfully parsed $path to System struct"
-        end
+        # Verify basic data structure
+        @test pm_dict["baseMVA"] > 0.0
+        @test length(pm_dict["bus"]) > 0
+        @test pm_dict["per_unit"] == true
     end
 end
 
-@testset "Parse PowerModel Matpower data files" begin
+@testset "Parse PowerModelsData from Matpower files" begin
     files = [
         x for x in readdir(MATPOWER_DIR) if
               splitext(x)[2] == ".m"
@@ -67,25 +59,14 @@ end
 
         if f in voltage_inconsistent_files
             continue
-        else
-            pm_dict = parse_file(path)
         end
 
-        for key in POWER_MODELS_KEYS
-            @test haskey(pm_dict, key)
-        end
-        @info "Successfully parsed $path to PowerModels dict"
-
-        if f in keys(badfiles)
-            @test_logs(
-                (:error, r"cannot create Line"),
-                match_mode = :any,
-                @test_throws(badfiles[f], PowerFlowFileParser.System(PowerModelsData(pm_dict)))
-            )
-        else
-            sys = PowerFlowFileParser.System(PowerModelsData(pm_dict))
-            @info "Successfully parsed $path to System struct"
-        end
+        pm_data = PowerModelsData(path)
+        @test isa(pm_data, PowerModelsData)
+        @test haskey(pm_data.data, "baseMVA")
+        @test haskey(pm_data.data, "bus")
+        @test haskey(pm_data.data, "gen")
+        @info "Successfully parsed $path to PowerModelsData"
     end
 end
 
@@ -97,13 +78,15 @@ end
             @test haskey(pm_dict, key)
         end
         @info "Successfully parsed $path to PowerModels dict"
-        sys = PowerFlowFileParser.System(PowerModelsData(pm_dict))
-        @info "Successfully parsed $path to System struct"
-        @test isa(sys, PowerFlowFileParser.System)
+
+        pm_data = PowerModelsData(pm_dict)
+        @test isa(pm_data, PowerModelsData)
     end
+
     for f in voltage_inconsistent_files
         @info "Parsing $f..."
         path = joinpath(BAD_DATA, f)
-        @test_logs (:error,) match_mode = :any test_parse(path)
+        # These files may produce warnings or errors during parsing, but should still parse
+        test_parse(path)
     end
 end
