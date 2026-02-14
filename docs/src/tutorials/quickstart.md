@@ -32,9 +32,9 @@ Control validation and data corrections:
 
 ```julia
 pm_dict = parse_file(
-    "case.raw",
+    "case.raw";
     import_all = false,              # Essential fields only
     validate = true,                 # Apply corrections
-    correct_branch_rating = true     # Fix thermal ratings
+    correct_branch_rating = true,     # Fix thermal ratings
 )
 ```

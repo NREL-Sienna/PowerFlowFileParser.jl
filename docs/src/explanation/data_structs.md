@@ -26,10 +26,10 @@ Primary parsing function that dispatches based on file extension (`.m`, `.raw`, 
 
 **Arguments:**
 
-- `file::String`: Path to power flow file
-- `import_all::Bool`: Import all fields vs essential only (default: `false`)
-- `validate::Bool`: Apply data corrections (default: `true`)
-- `correct_branch_rating::Bool`: Fix branch thermal ratings (default: `true`)
+  - `file::String`: Path to power flow file
+  - `import_all::Bool`: Import all fields vs essential only (default: `false`)
+  - `validate::Bool`: Apply data corrections (default: `true`)
+  - `correct_branch_rating::Bool`: Fix branch thermal ratings (default: `true`)
 
 **Returns:** `Dict{String, Any}` in PowerModels format
 

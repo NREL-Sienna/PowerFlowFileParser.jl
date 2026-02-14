@@ -49,11 +49,11 @@ PowerFlowFileParser.jl applies the following conventions when parsing MATPOWER a
 
 PowerFlowFileParser extracts comprehensive power system data including:
 
-- **Network**: Buses, branches (lines, transformers), areas, zones
-- **Generation**: Generators, synchronous condensers
-- **Load**: Static loads, interruptible loads, motor loads
-- **Compensation**: Shunts (fixed and switched)
-- **DC Systems**: HVDC lines, VSC converters
-- **FACTS**: Flexible AC transmission devices
-- **Storage**: Energy storage systems
-- **Controls**: Tap-changing transformers, phase-shifters
+  - **Network**: Buses, branches (lines, transformers), areas, zones
+  - **Generation**: Generators, synchronous condensers
+  - **Load**: Static loads, interruptible loads, motor loads
+  - **Compensation**: Shunts (fixed and switched)
+  - **DC Systems**: HVDC lines, VSC converters
+  - **FACTS**: Flexible AC transmission devices
+  - **Storage**: Energy storage systems
+  - **Controls**: Tap-changing transformers, phase-shifters

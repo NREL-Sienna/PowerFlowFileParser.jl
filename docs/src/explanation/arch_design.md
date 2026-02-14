@@ -6,22 +6,22 @@ PowerFlowFileParser.jl follows a clear separation of concerns:
 
 **Two Parsing Pathways**:
 
-1. **PowerModels-based**: Produces standardized dictionaries via `parse_file()` or `PowerModelsData`
-2. **PowerFlowData-based**: Produces typed structs via `PowerFlowDataNetwork`
+ 1. **PowerModels-based**: Produces standardized dictionaries via `parse_file()` or `PowerModelsData`
+ 2. **PowerFlowData-based**: Produces typed structs via `PowerFlowDataNetwork`
 
 This architecture keeps the parser lightweight, testable, and reusable across multiple downstream packages.
 
 ## Supported Formats
 
-- **MATPOWER (.m)**: Matlab-based case files common in academic research
-- **PSS/E RAW (.raw)**: Industry-standard format (versions 30, 32, 33, 35)
+  - **MATPOWER (.m)**: Matlab-based case files common in academic research
+  - **PSS/E RAW (.raw)**: Industry-standard format (versions 30, 32, 33, 35)
 
 ## Data Validation
 
 The parser applies automatic corrections including:
 
-- Connectivity validation
-- Reference bus verification
-- Per-unit conversion
-- Transformer parameter correction
-- Thermal limit validation
+  - Connectivity validation
+  - Reference bus verification
+  - Per-unit conversion
+  - Transformer parameter correction
+  - Thermal limit validation

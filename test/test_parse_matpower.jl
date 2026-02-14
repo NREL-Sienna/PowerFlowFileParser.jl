@@ -47,7 +47,7 @@ end
 @testset "Parse PowerModelsData from Matpower files" begin
     files = [
         x for x in readdir(MATPOWER_DIR) if
-              splitext(x)[2] == ".m"
+        splitext(x)[2] == ".m"
     ]
     if length(files) == 0
         @error "No test files in the folder"
