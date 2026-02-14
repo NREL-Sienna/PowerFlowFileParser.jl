@@ -4,14 +4,22 @@ using PowerFlowFileParser
 
 pages = OrderedDict(
     "Welcome Page" => "index.md",
-    "Tutorials" => Any["stub" => "tutorials/stub.md"],
-    "How to..." => Any["stub" => "how_to_guides/stub.md"],
-    "Explanation" => Any["stub" => "explanation/stub.md"],
+    "Tutorials" => Any[
+        "Quick Start" => "tutorials/quickstart.md",
+    ],
+    "How-To Guides" => Any[
+        "Overview" => "how_to_guides/stub.md",
+        "Parsing MATPOWER or PSS/E Files" => "how_to_guides/parse_matpower_psse.md"
+    ],
+    "Explanation" => Any[
+        "Architecture" => "explanation/arch_design.md",
+        "Main Data Structures" => "explanation/arch_design.md"
+    ],
     "Reference" => Any[
-        "Developers" => ["Developer Guidelines" => "reference/developer_guidelines.md",
-        "Internals" => "reference/internal.md"],
+        "Quick Reference" => "reference/stub.md",
+        "Developer Guidelines" => "reference/developer_guidelines.md",
         "Public API" => "reference/public.md",
-        "Stub" => "reference/stub.md"
+        "Internal API" => "reference/internal.md"
     ],
 )
 
@@ -21,13 +29,13 @@ makedocs(
         prettyurls = haskey(ENV, "GITHUB_ACTIONS"),
         size_threshold = nothing,),
     sitename = "github.com/NREL-Sienna/PowerFlowFileParser.jl",
-    authors = "Freddy Mercury",
+    authors = "Sienna Team",
     pages = Any[p for p in pages],
     draft = false,
 )
 
 deploydocs(
-    repo="github.com/NREL-Sienna/SiennaTemplate.jl",
+    repo="github.com/NREL-Sienna/PowerFlowFileParser.jl",
     target="build",
     branch="gh-pages",
     devbranch="main",

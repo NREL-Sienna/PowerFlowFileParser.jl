@@ -6,13 +6,13 @@ CurrentModule = PowerFlowFileParser
 
 ## Overview
 
-`PowerFlowFileParser.jl` is a [`Julia`](http://www.julialang.org) package that provides blah blah
+`PowerFlowFileParser.jl` is a [`Julia`](http://www.julialang.org) package for parsing text-based power flow file formats (MATPOWER `.m` and PSS/E `.raw` files) into standardized intermediate data representations. It serves as a lightweight bridge between legacy power system data formats and modern Julia-based analysis tools
 
 ## About
 
-`PowerFlowFileParser` is part of the National Renewable Energy Laboratory's
-[Sienna ecosystem](https://www.nrel.gov/analysis/sienna.html), an open source framework for
-scheduling problems and dynamic simulations for power systems. The Sienna ecosystem can be
+`PowerFlowFileParser` is part of the National Laboratory of the Rockies
+[Sienna platform](https://www.nrel.gov/analysis/sienna.html), an open source framework for
+scheduling problems and dynamic simulations for power systems. The Sienna platform can be
 [found on github](https://github.com/NREL-Sienna/Sienna). It contains three applications:
 
   - [Sienna\Data](https://github.com/NREL-Sienna/Sienna?tab=readme-ov-file#siennadata) enables

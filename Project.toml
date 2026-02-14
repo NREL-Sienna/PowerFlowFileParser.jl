@@ -15,7 +15,7 @@ YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 [compat]
 DataStructures = "0.19.3"
 DocStringExtensions = "~0.8, ~0.9"
-InfrastructureSystems = "3.2.0"
+InfrastructureSystems = "^3.2"
 LinearAlgebra = "1.12.0"
 PowerFlowData = "1.6.0"
 Unicode = "1.11.0"

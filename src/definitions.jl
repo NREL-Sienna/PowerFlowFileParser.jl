@@ -1,5 +1,3 @@
-
-
 const SKIP_PM_VALIDATION = false
 
 const PSSE_PARSER_TAP_RATIO_UBOUND = 1.5
