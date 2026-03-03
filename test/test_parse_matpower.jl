@@ -43,10 +43,10 @@ error_log_files = ["ACTIVSg2000.m", "case_ACTIVSg10k.m"]
             @test_logs(
                 (:error, r"cannot create Line"),
                 match_mode = :any,
-                @test_throws(badfiles[f], PowerFlowFileParser.System(PowerModelsData(pm_dict)))
+                @test_throws(badfiles[f], PSY.System(PowerModelsData(pm_dict)))
             )
         else
-            sys = PowerFlowFileParser.System(PowerModelsData(pm_dict))
+            sys = PSY.System(PowerModelsData(pm_dict))
             @info "Successfully parsed $path to System struct"
         end
     end
@@ -80,10 +80,10 @@ end
             @test_logs(
                 (:error, r"cannot create Line"),
                 match_mode = :any,
-                @test_throws(badfiles[f], PowerFlowFileParser.System(PowerModelsData(pm_dict)))
+                @test_throws(badfiles[f], PSY.System(PowerModelsData(pm_dict)))
             )
         else
-            sys = PowerFlowFileParser.System(PowerModelsData(pm_dict))
+            sys = PSY.System(PowerModelsData(pm_dict))
             @info "Successfully parsed $path to System struct"
         end
     end
@@ -97,9 +97,9 @@ end
             @test haskey(pm_dict, key)
         end
         @info "Successfully parsed $path to PowerModels dict"
-        sys = PowerFlowFileParser.System(PowerModelsData(pm_dict))
+        sys = PSY.System(PowerModelsData(pm_dict))
         @info "Successfully parsed $path to System struct"
-        @test isa(sys, PowerFlowFileParser.System)
+        @test isa(sys, PSY.System)
     end
     for f in voltage_inconsistent_files
         @info "Parsing $f..."

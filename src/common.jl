@@ -1,12 +1,9 @@
-const GENERATOR_MAPPING_FILE_PM =
-    joinpath(dirname(pathof(PowerSystems)), "parsers", "generator_mapping_pm.yaml")
-
 const SKIP_PM_VALIDATION = false
 
 const PSSE_PARSER_TAP_RATIO_UBOUND = 1.5
 const PSSE_PARSER_TAP_RATIO_LBOUND = 0.5
 const INFINITE_BOUND = 1e6
-
+#=
 const STRING2FUEL =
     Dict((normalize(string(x); casefold = true) => x) for x in instances(ThermalFuels))
 merge!(
@@ -159,3 +156,4 @@ end
 function parse_enum_mapping(::Type{PrimeMovers}, prime_mover::Symbol)
     return parse_enum_mapping(PrimeMovers, string(prime_mover))
 end
+=#
