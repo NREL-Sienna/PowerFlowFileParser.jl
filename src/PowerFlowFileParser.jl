@@ -22,7 +22,8 @@ import InfrastructureSystems
 const IS = InfrastructureSystems
 
 import InfrastructureSystems:
-    DataFormatError
+    DataFormatError,
+    LinearCurve
 
 #################################################################################
 # Includes
