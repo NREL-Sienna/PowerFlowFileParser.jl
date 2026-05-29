@@ -3,9 +3,6 @@ const PS_MAX_LOG = parse(Int, get(ENV, "PS_MAX_LOG", "50"))
 
 const DEFAULT_BASE_MVA = 100.0
 
-const POWER_SYSTEM_STRUCT_DESCRIPTOR_FILE =
-    joinpath(dirname(pathof(PowerSystems)), "descriptors", "power_system_structs.json")
-
 const DEFAULT_SYSTEM_FREQUENCY = 60.0
 
 const INFINITE_TIME = 1e4
