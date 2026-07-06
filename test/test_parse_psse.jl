@@ -10,9 +10,6 @@ function _psse_rev(path)
     return rev === nothing ? 30 : rev
 end
 
-const _LOW_VERSION_RAW = ("synthetic_data_v29.raw", "synthetic_data_v30.raw",
-    "11BUS_KUNDUR_30.raw", "RTS_30.raw")
-
 # The `parser_test_*` fixtures are targeted edge-case files that crash the native
 # parser today (InexactError, iterate(::Nothing)); they predate this work and are
 # excluded here. Tracked for separate triage, not by this consolidation.
@@ -40,19 +37,51 @@ _is_parser_test(f) = startswith(f, "parser_test_")
     end
 end
 
-# These v29/v30 files do not parse on the native path today: the v33 column
-# tables misalign on the v30 bus record (float GL/BL where AREA::Int is expected),
-# and the parser's error handler throws a non-Exception. We pin only that parsing
-# does NOT succeed, robustly to how it fails. Phase 2 flips these to real assertions.
-@testset "PSSE Parsing (low-version, native path, currently unsupported)" begin
-    for f in _LOW_VERSION_RAW
-        path = joinpath(PSSE_RAW_DIR, f)
-        @test isfile(path)
-        parsed_ok = try
-            PowerModelsData(path) isa PowerModelsData
-        catch
-            false
-        end
-        @test !parsed_ok
+# Expected component counts for the low-version fixtures, taken from the
+# PowerFlowData baseline (see test_parse_powerflowdata.jl).
+const _LOW_VERSION_COUNTS = Dict(
+    "synthetic_data_v29.raw" => (bus = 2, load = 2, gen = 1, branch = 3, transformer = 3),
+    "synthetic_data_v30.raw" => (bus = 3, load = 2, gen = 3, branch = 3, transformer = 2),
+    "11BUS_KUNDUR_30.raw" => (bus = 11, load = 2, gen = 4, branch = 8, transformer = 4),
+    "RTS_30.raw" => (bus = 73, load = 51, gen = 160, branch = 105, transformer = 15),
+)
+
+# LAYOUT stage (`parse_pti`): text -> raw section dicts, no topology resolution,
+# analogous to the PowerFlowData path. Every low-version file must parse cleanly
+# with section counts matching the baseline. This is the v29/v30 dtype-table and
+# section-ordering proof, independent of connectivity.
+@testset "PSSE v29/v30 layout parsing" begin
+    for (f, c) in _LOW_VERSION_COUNTS
+        d = PowerFlowFileParser.parse_pti(joinpath(PSSE_RAW_DIR, f))
+        @test length(d["BUS"]) == c.bus
+        @test length(d["LOAD"]) == c.load
+        @test length(d["GENERATOR"]) == c.gen
+        @test length(d["BRANCH"]) == c.branch
+        @test length(d["TRANSFORMER"]) == c.transformer
+    end
+end
+
+# BUILD stage (`PowerModelsData`): topology resolution. The real v30 systems build
+# fully. The native "branch" dict includes transformers, so it equals the baseline
+# branches + transformers.
+@testset "PSSE v30 native build (real systems)" begin
+    for f in ("11BUS_KUNDUR_30.raw", "RTS_30.raw")
+        c = _LOW_VERSION_COUNTS[f]
+        pm = PowerModelsData(joinpath(PSSE_RAW_DIR, f)).data
+        @test pm["source_version"] == "30"
+        @test length(pm["bus"]) == c.bus
+        @test length(pm["gen"]) == c.gen
+        @test length(pm["load"]) == c.load
+        @test length(pm["branch"]) == c.branch + c.transformer
+    end
+end
+
+# The synthetic fixtures are parser-stress files that reference undefined buses
+# (e.g. a generator at a bus absent from the BUS section). They parse cleanly at
+# the layout stage above, but the native build correctly refuses to resolve
+# topology for a dangling reference. Encoded here as an expected failure.
+@testset "PSSE v29/v30 native build rejects dangling references" begin
+    for f in ("synthetic_data_v29.raw", "synthetic_data_v30.raw")
+        @test_throws Exception PowerModelsData(joinpath(PSSE_RAW_DIR, f))
     end
 end

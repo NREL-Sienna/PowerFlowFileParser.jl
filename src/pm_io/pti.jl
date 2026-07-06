@@ -37,6 +37,32 @@ const _pti_sections_v35 = vcat(
     "SUBSTATION DATA",
 )
 
+# v30/v29 section order differs from v33: there is no FIXED SHUNT section (fixed shunts
+# are embedded in the bus record via GL/BL), and SWITCHED SHUNT appears right after
+# VOLTAGE SOURCE CONVERTER rather than near the end. Order matches PowerFlowData's
+# v30 Network layout.
+const _pti_sections_v30 = [
+    "CASE IDENTIFICATION",
+    "BUS",
+    "LOAD",
+    "GENERATOR",
+    "BRANCH",
+    "TRANSFORMER",
+    "AREA INTERCHANGE",
+    "TWO-TERMINAL DC",
+    "VOLTAGE SOURCE CONVERTER",
+    "SWITCHED SHUNT",
+    "IMPEDANCE CORRECTION",
+    "MULTI-TERMINAL DC",
+    "MULTI-SECTION LINE",
+    "ZONE",
+    "INTER-AREA TRANSFER",
+    "OWNER",
+    "FACTS CONTROL DEVICE",
+    "GNE DEVICE",
+    "INDUCTION MACHINE",
+]
+
 const _transaction_dtypes = [
     ("IC", Int64),
     ("SBASE", Float64),
@@ -251,6 +277,31 @@ const _branch_dtypes_v35 = vcat(
     ],
     _branch_dtypes[10:end],
 )
+
+# v30/v29 layouts (derived from PowerFlowData's Buses30/Loads/Generators/Branches30).
+# v30/v29 bus: fixed-shunt GL/BL are inline; no NVHI/NVLO/EVHI/EVLO; owner is last.
+const _bus_dtypes_v30 = [
+    ("I", Int64),
+    ("NAME", String),
+    ("BASKV", Float64),
+    ("IDE", Int64),
+    ("GL", Float64),
+    ("BL", Float64),
+    ("AREA", Int64),
+    ("ZONE", Int64),
+    ("VM", Float64),
+    ("VA", Float64),
+    ("OWNER", Int64),
+]
+
+# v30 load: v33 layout minus the trailing SCALE, INTRPT columns.
+const _load_dtypes_v30 = _load_dtypes[1:12]
+
+# v30 generator: v33 layout minus the trailing WMOD, WPF columns.
+const _generator_dtypes_v30 = _generator_dtypes[1:26]
+
+# v30 branch: v33 layout minus the MET column (between ST and LEN).
+const _branch_dtypes_v30 = vcat(_branch_dtypes[1:14], _branch_dtypes[16:end])
 
 const _switching_dtypes_v35 = [
     ("I", Int64),
@@ -942,6 +993,26 @@ const _pti_dtypes_v35 = Dict{String, Array}(
     "SUBSTATION DATA" => _substation_dtypes_v35,
 )
 
+# v30 switched shunt: v33 layout minus ADJM and STAT (both v33-only, positions 3-4).
+const _switched_shunt_dtypes_v30 =
+    vcat(_switched_shunt_dtypes[1:2], _switched_shunt_dtypes[5:end])
+
+# v30/v29 multi-terminal DC link: v33 layout minus the MET column (position 4).
+const _multi_term_ndcln_dtypes_v30 =
+    vcat(_multi_term_ndcln_dtypes[1:3], _multi_term_ndcln_dtypes[5:end])
+
+# v30/v29: the v33 tables with the changed sections overridden and no FIXED SHUNT.
+const _pti_dtypes_v30 = let d = copy(_pti_dtypes)
+    delete!(d, "FIXED SHUNT")
+    d["BUS"] = _bus_dtypes_v30
+    d["LOAD"] = _load_dtypes_v30
+    d["GENERATOR"] = _generator_dtypes_v30
+    d["BRANCH"] = _branch_dtypes_v30
+    d["SWITCHED SHUNT"] = _switched_shunt_dtypes_v30
+    d["MULTI-TERMINAL DC NDCLN"] = _multi_term_ndcln_dtypes_v30
+    d
+end
+
 const _default_case_identification = Dict(
     "IC" => 0,
     "SBASE" => 100.0,
@@ -1521,25 +1592,31 @@ function _correct_nothing_values!(data::Dict)
     sbase = data["CASE IDENTIFICATION"][1]["SBASE"]
     bus_lookup = Dict(bus["I"] => bus for bus in data["BUS"])
 
+    # These corrections default missing fields from the component's bus. A component
+    # may reference a bus absent from the case (malformed data); in that case the
+    # bus-derived default cannot be applied, so skip it rather than erroring here.
+    # The invalid reference surfaces later in the build/topology stage.
     if haskey(data, "LOAD")
         for load in data["LOAD"]
-            load_bus = bus_lookup[load["I"]]
-            if load["AREA"] === nothing
-                load["AREA"] = load_bus["AREA"]
-            end
-            if load["ZONE"] === nothing
-                load["ZONE"] = load_bus["ZONE"]
-            end
-            if load["OWNER"] === nothing
-                load["OWNER"] = load_bus["OWNER"]
+            load_bus = get(bus_lookup, load["I"], nothing)
+            if load_bus !== nothing
+                if load["AREA"] === nothing
+                    load["AREA"] = load_bus["AREA"]
+                end
+                if load["ZONE"] === nothing
+                    load["ZONE"] = load_bus["ZONE"]
+                end
+                if load["OWNER"] === nothing
+                    load["OWNER"] = load_bus["OWNER"]
+                end
             end
         end
     end
 
     if haskey(data, "GENERATOR")
         for gen in data["GENERATOR"]
-            gen_bus = bus_lookup[gen["I"]]
-            if haskey(gen, "OWNER") && gen["OWNER"] === nothing
+            gen_bus = get(bus_lookup, gen["I"], nothing)
+            if gen_bus !== nothing && haskey(gen, "OWNER") && gen["OWNER"] === nothing
                 gen["OWNER"] = gen_bus["OWNER"]
             end
             if gen["MBASE"] === nothing
@@ -1550,8 +1627,9 @@ function _correct_nothing_values!(data::Dict)
 
     if haskey(data, "BRANCH")
         for branch in data["BRANCH"]
-            branch_bus = bus_lookup[branch["I"]]
-            if haskey(branch, "OWNER") && branch["OWNER"] === nothing
+            branch_bus = get(bus_lookup, branch["I"], nothing)
+            if branch_bus !== nothing && haskey(branch, "OWNER") &&
+               branch["OWNER"] === nothing
                 branch["OWNER"] = branch_bus["OWNER"]
             end
         end
@@ -1559,7 +1637,7 @@ function _correct_nothing_values!(data::Dict)
 
     if haskey(data, "TRANSFORMER")
         for transformer in data["TRANSFORMER"]
-            transformer_bus = bus_lookup[transformer["I"]]
+            transformer_bus = get(bus_lookup, transformer["I"], nothing)
             for base_id in ["SBASE1-2", "SBASE2-3", "SBASE3-1"]
                 if haskey(transformer, base_id) && transformer[base_id] === nothing
                     transformer[base_id] = sbase
@@ -1567,7 +1645,7 @@ function _correct_nothing_values!(data::Dict)
             end
             for winding_id in ["WINDV1", "WINDV2", "WINDV3"]
                 if haskey(transformer, winding_id) && transformer[winding_id] === nothing
-                    if transformer["CW"] == 2
+                    if transformer["CW"] == 2 && transformer_bus !== nothing
                         transformer[winding_id] = transformer_bus["BASKV"]
                     else
                         transformer[winding_id] = 1.0
@@ -1918,23 +1996,31 @@ Internal function. Parse a PTI raw file into a `Dict`, given the
 file (typically given by default by `get_pti_sections()`.
 """
 function _parse_pti_data(data_io::IO)
-    sections = deepcopy(_pti_sections)
-    sections_v35 = deepcopy(_pti_sections_v35)
     data_lines = readlines(data_io)
     skip_lines = 0
     skip_sublines = 0
     subsection = ""
-    is_v35 = false
+
+    # Detect version up front so the right section list and dtypes are chosen before
+    # parsing begins. v35 files lead with `@!` column-header lines. Otherwise REV is
+    # field 3 of the case-identification line; absent (pre-v33 files) => treat as v30.
+    is_v35 = any(startswith.(data_lines, "@!"))
+    is_v30 = false
+    if !is_v35
+        caseid_fields = split(split(data_lines[1], '/')[1], ',')
+        rev = length(caseid_fields) < 3 ? 30 :
+              something(tryparse(Int, strip(caseid_fields[3])), 30)
+        is_v30 = rev <= 30
+    end
+
+    sections = deepcopy(is_v30 ? _pti_sections_v30 : _pti_sections)
+    sections_v35 = deepcopy(_pti_sections_v35)
 
     pti_data = Dict{String, Array{Dict}}()
 
     section = popfirst!(sections)
     section_v35 = popfirst!(sections_v35)
     section_data = Dict{String, Any}()
-
-    if any(startswith.(data_lines, "@!"))
-        is_v35 = true
-    end
 
     header_line_start = is_v35 ? 2 : 1 # Start in second line due to @!
     # Dynamically handle the start of BUS DATA section
@@ -1973,7 +2059,7 @@ function _parse_pti_data(data_io::IO)
         4 # Start for all v33 files
     end
 
-    current_dtypes = is_v35 ? _pti_dtypes_v35 : _pti_dtypes
+    current_dtypes = is_v35 ? _pti_dtypes_v35 : (is_v30 ? _pti_dtypes_v30 : _pti_dtypes)
 
     line_index = 1
     while line_index <= length(data_lines)

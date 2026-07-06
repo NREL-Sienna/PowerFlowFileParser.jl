@@ -171,8 +171,10 @@ function _psse2pm_branch!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             end
             if first(branch["CKT"]) != '@' && first(branch["CKT"]) != '*'
                 sub_data = Dict{String, Any}()
-                sub_data["f_bus"] = pop!(branch, "I")
-                sub_data["t_bus"] = pop!(branch, "J")
+                # A negative branch endpoint marks the metered end in PSS(R)E; the bus
+                # number is its magnitude.
+                sub_data["f_bus"] = abs(pop!(branch, "I"))
+                sub_data["t_bus"] = abs(pop!(branch, "J"))
                 bus_from = pm_data["bus"][sub_data["f_bus"]]
                 sub_data["base_voltage_from"] = bus_from["base_kv"]
                 bus_to = pm_data["bus"][sub_data["t_bus"]]
@@ -195,7 +197,7 @@ function _psse2pm_branch!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     "LEN" => pop!(branch, "LEN"),
                 )
 
-                if pm_data["source_version"] ∈ ("32", "33")
+                if pm_data["source_version"] ∈ ("30", "32", "33")
                     sub_data["rate_a"] = pop!(branch, "RATEA")
                     sub_data["rate_b"] = pop!(branch, "RATEB")
                     sub_data["rate_c"] = pop!(branch, "RATEC")
@@ -409,7 +411,8 @@ function _psse2pm_generator!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["xt_source"] = pop!(gen, "XT")
             sub_data["r_source"] = pop!(gen, "ZR")
             sub_data["x_source"] = pop!(gen, "ZX")
-            sub_data["m_control_mode"] = pop!(gen, "WMOD")
+            # WMOD is v32+; v30 generator records default to conventional machine (0).
+            sub_data["m_control_mode"] = pop!(gen, "WMOD", 0)
 
             if _is_synch_condenser(sub_data, pm_data)
                 sub_data["fuel"] = "SYNC_COND"
@@ -421,10 +424,11 @@ function _psse2pm_generator!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     "NREG" => pop!(gen, "NREG"),
                     "BASLOD" => pop!(gen, "BASLOD"),
                 )
-            elseif pm_data["source_version"] ∈ ("32", "33")
+            elseif pm_data["source_version"] ∈ ("30", "32", "33")
+                # WPF is v32+; v30 generator records have no wind power factor.
                 sub_data["ext"] = Dict{String, Any}(
                     "IREG" => pop!(gen, "IREG"),
-                    "WPF" => pop!(gen, "WPF"),
+                    "WPF" => pop!(gen, "WPF", 1.0),
                     "WMOD" => sub_data["m_control_mode"],
                     "GTAP" => pop!(gen, "GTAP"),
                     "RMPCT" => pop!(gen, "RMPCT"),
@@ -550,9 +554,28 @@ function _psse2pm_bus!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["base_kv"] = pop!(bus, "BASKV")
             sub_data["zone"] = pop!(bus, "ZONE")
             sub_data["name"] = pop!(bus, "NAME")
-            sub_data["vmax"] = pop!(bus, "NVHI")
-            sub_data["vmin"] = pop!(bus, "NVLO")
+            # v30/v29 bus records carry no normal voltage limits; use PSS(R)E defaults.
+            sub_data["vmax"] = pop!(bus, "NVHI", 1.1)
+            sub_data["vmin"] = pop!(bus, "NVLO", 0.9)
             sub_data["hidden"] = false
+
+            # v30/v29 embed fixed-shunt admittance in the bus record (GL/BL); there is
+            # no separate FIXED SHUNT section. Capture nonzero values for the shunt
+            # reader. In v33 these keys are absent, so this is a no-op there.
+            gl = pop!(bus, "GL", 0.0)
+            bl = pop!(bus, "BL", 0.0)
+            if gl != 0.0 || bl != 0.0
+                push!(
+                    get!(pm_data, "_inline_fixed_shunts", Vector{Dict{String, Any}}()),
+                    Dict{String, Any}(
+                        "I" => sub_data["bus_i"],
+                        "ID" => "1",
+                        "STATUS" => 1,
+                        "GL" => gl,
+                        "BL" => bl,
+                    ),
+                )
+            end
 
             sub_data["source_id"] = ["bus", "$(bus["I"])"]
             sub_data["index"] = pop!(bus, "I")
@@ -592,12 +615,13 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             # Positive for an inductive load (consumes Q)
             # Negative for a capacitive load (injects Q)
             sub_data["qy"] = -pop!(load, "YQ")
-            sub_data["conformity"] = pop!(load, "SCALE")
+            # SCALE/INTRPT are absent in v30/v29 load records; use PSS(R)E defaults.
+            sub_data["conformity"] = pop!(load, "SCALE", 1)
             sub_data["source_id"] = ["load", sub_data["load_bus"], pop!(load, "ID")]
-            sub_data["interruptible"] = pop!(load, "INTRPT")
+            sub_data["interruptible"] = pop!(load, "INTRPT", 0)
             sub_data["ext"] = Dict{String, Any}()
 
-            if pm_data["source_version"] ∈ ("32", "33")
+            if pm_data["source_version"] ∈ ("30", "32", "33")
                 sub_data["ext"]["LOADTYPE"] = ""
             elseif pm_data["source_version"] == "35"
                 sub_data["ext"]["LOADTYPE"] = pop!(load, "LOADTYPE", "")
@@ -634,30 +658,32 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     @info "Parsing PSS(R)E Fixed & Switched Shunt data into a PowerModels Dict..."
 
     pm_data["shunt"] = []
-    if haskey(pti_data, "FIXED SHUNT")
-        for shunt in pti_data["FIXED SHUNT"]
-            sub_data = Dict{String, Any}()
+    # Fixed shunts come from the FIXED SHUNT section (v32+) or, for v30/v29, from
+    # GL/BL embedded in the bus record and captured by the bus reader.
+    fixed_shunts = get(pti_data, "FIXED SHUNT", Any[])
+    inline_fixed_shunts = pop!(pm_data, "_inline_fixed_shunts", Dict{String, Any}[])
+    for shunt in Iterators.flatten((fixed_shunts, inline_fixed_shunts))
+        sub_data = Dict{String, Any}()
 
-            sub_data["shunt_bus"] = pop!(shunt, "I")
-            sub_data["gs"] = pop!(shunt, "GL")
-            sub_data["bs"] = pop!(shunt, "BL")
-            sub_data["status"] = _determine_injector_status(
-                shunt,
-                pm_data,
-                sub_data["shunt_bus"],
-                "STATUS",
-                "candidate_isolated_to_pq_buses",
-            )
+        sub_data["shunt_bus"] = pop!(shunt, "I")
+        sub_data["gs"] = pop!(shunt, "GL")
+        sub_data["bs"] = pop!(shunt, "BL")
+        sub_data["status"] = _determine_injector_status(
+            shunt,
+            pm_data,
+            sub_data["shunt_bus"],
+            "STATUS",
+            "candidate_isolated_to_pq_buses",
+        )
 
-            sub_data["source_id"] =
-                ["fixed shunt", sub_data["shunt_bus"], pop!(shunt, "ID")]
-            sub_data["index"] = length(pm_data["shunt"]) + 1
+        sub_data["source_id"] =
+            ["fixed shunt", sub_data["shunt_bus"], pop!(shunt, "ID")]
+        sub_data["index"] = length(pm_data["shunt"]) + 1
 
-            if import_all
-                _import_remaining_keys!(sub_data, shunt)
-            end
-            push!(pm_data["shunt"], sub_data)
+        if import_all
+            _import_remaining_keys!(sub_data, shunt)
         end
+        push!(pm_data["shunt"], sub_data)
     end
 
     pm_data["switched_shunt"] = []
@@ -668,6 +694,8 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["shunt_bus"] = pop!(switched_shunt, "I")
             sub_data["gs"] = 0.0
             sub_data["bs"] = pop!(switched_shunt, "BINIT")
+            # STAT and ADJM are v32+; v30 switched shunts default to in-service, method 0.
+            get!(switched_shunt, "STAT", 1)
             sub_data["status"] = _determine_injector_status(
                 switched_shunt,
                 pm_data,
@@ -689,7 +717,7 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
             sub_data["ext"] = Dict{String, Any}(
                 "MODSW" => switched_shunt["MODSW"],
-                "ADJM" => switched_shunt["ADJM"],
+                "ADJM" => get(switched_shunt, "ADJM", 0),
                 "RMPCT" => switched_shunt["RMPCT"],
                 "RMIDNT" => switched_shunt["RMIDNT"],
             )
@@ -718,7 +746,7 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     sub_data["initial_status"][1:length(sub_data["step_number"])]
 
                 sub_data["ext"]["NREG"] = pop!(switched_shunt, "NREG")
-            elseif pm_data["source_version"] ∈ ("32", "33")
+            elseif pm_data["source_version"] ∈ ("30", "32", "33")
                 sub_data["ext"]["SWREM"] = switched_shunt["SWREM"]
                 sub_data["initial_status"] = ones(Int, length(sub_data["y_increment"]))
             else
@@ -977,7 +1005,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     "MAG2" => transformer["MAG2"],
                 )
 
-                if pm_data["source_version"] ∈ ("32", "33")
+                if pm_data["source_version"] ∈ ("30", "32", "33")
                     sub_data["rate_a"] = pop!(transformer, "RATA1")
                     sub_data["rate_b"] = pop!(transformer, "RATB1")
                     sub_data["rate_c"] = pop!(transformer, "RATC1")
@@ -1350,7 +1378,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["r_tertiary"] = Zr_t
                 sub_data["x_tertiary"] = Zx_t
 
-                if pm_data["source_version"] ∈ ("32", "33")
+                if pm_data["source_version"] ∈ ("30", "32", "33")
                     sub_data["rating_primary"] =
                         min(
                             transformer["RATA1"],
@@ -1519,7 +1547,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 for prefix in TRANSFORMER3W_PARAMETER_NAMES
                     for i in 1:length(WINDING_NAMES)
                         key = "$prefix$i"
-                        if pm_data["source_version"] ∈ ("32", "33")
+                        if pm_data["source_version"] ∈ ("30", "32", "33")
                             sub_data["ext"][key] = transformer[key]
                         else
                             continue
@@ -1579,6 +1607,15 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     if haskey(pti_data, "TWO-TERMINAL DC")
         for dcline in pti_data["TWO-TERMINAL DC"]
             sub_data = Dict{String, Any}()
+
+            # Skip DC lines referencing a bus absent from the case; they cannot be
+            # represented and would fail topology resolution downstream.
+            if !haskey(pm_data["bus"], dcline["IPR"]) ||
+               !haskey(pm_data["bus"], dcline["IPI"])
+                @warn "Two-terminal DC line references an undefined bus (rectifier \
+                       $(dcline["IPR"]), inverter $(dcline["IPI"])); skipping."
+                continue
+            end
 
             # Unit conversions?
             power_demand =
@@ -1704,7 +1741,7 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["inverter_capacitor_reactance"] = dcline["XCAPI"] / ZbaseI
             sub_data["r"] = dcline["RDC"] / ZbaseR
 
-            if pm_data["source_version"] ∈ ("32", "33")
+            if pm_data["source_version"] ∈ ("30", "32", "33")
                 sub_data["ext"] = Dict{String, Any}(
                     "psse_name" => dcline["NAME"],
                 )
@@ -1901,7 +1938,7 @@ function _psse2pm_facts!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             if pm_data["source_version"] == "35"
                 sub_data["ext"]["NREG"] = facts["NREG"]
                 sub_data["ext"]["MNAME"] = facts["MNAME"]
-            elseif pm_data["source_version"] ∈ ("32", "33")
+            elseif pm_data["source_version"] ∈ ("30", "32", "33")
                 sub_data["ext"] = Dict{String, Any}(
                     "J" => facts["J"],
                 )
@@ -2211,7 +2248,9 @@ function _pti_to_powermodels!(
 )::Dict
     pm_data = Dict{String, Any}()
 
-    rev = pop!(pti_data["CASE IDENTIFICATION"][1], "REV")
+    # v29-era files omit REV entirely; treat them as v30.
+    rev = haskey(pti_data["CASE IDENTIFICATION"][1], "REV") ?
+          pop!(pti_data["CASE IDENTIFICATION"][1], "REV") : 30
 
     pm_data["per_unit"] = false
     pm_data["source_type"] = "pti"
