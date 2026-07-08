@@ -1080,6 +1080,12 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
                 sub_data["index"] = length(pm_data["branch"]) + 1
                 sub_data["COD1"] = transformer["COD1"]
+                sub_data["CONT1"] = transformer["CONT1"]
+                sub_data["RMA1"] = transformer["RMA1"]
+                sub_data["RMI1"] = transformer["RMI1"]
+                sub_data["VMA1"] = transformer["VMA1"]
+                sub_data["VMI1"] = transformer["VMI1"]
+                sub_data["NTP1"] = transformer["NTP1"]
                 if import_all
                     _import_remaining_keys!(
                         sub_data,
@@ -1231,76 +1237,9 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                         br_x31 *= Z_base_sys_3 / Z_base_device_3
                     end
                 end
-
-                # Compute primary,secondary, tertiary impedances in system base, then convert to base power of appropriate winding
-                if iszero(Z_base_device_1)
-                    br_r12_sysbase = br_r12 / mva_ratio_12
-                    br_x12_sysbase = br_x12 / mva_ratio_12
-                else
-                    br_r12_sysbase = br_r12 * (Z_base_device_1 / Z_base_sys_1)
-                    br_x12_sysbase = br_x12 * (Z_base_device_1 / Z_base_sys_1)
-                end
-                if iszero(Z_base_device_2)
-                    br_r23_sysbase = br_r23 / mva_ratio_23
-                    br_x23_sysbase = br_x23 / mva_ratio_23
-                else
-                    br_r23_sysbase = br_r23 * (Z_base_device_2 / Z_base_sys_2)
-                    br_x23_sysbase = br_x23 * (Z_base_device_2 / Z_base_sys_2)
-                end
-                if iszero(Z_base_device_3)
-                    br_r31_sysbase = br_r31 / mva_ratio_31
-                    br_x31_sysbase = br_x31 / mva_ratio_31
-                else
-                    br_r31_sysbase = br_r31 * (Z_base_device_3 / Z_base_sys_3)
-                    br_x31_sysbase = br_x31 * (Z_base_device_3 / Z_base_sys_3)
-                end
-                # See "Power System Stability and Control", ISBN: 0-07-035958-X, Eq. 6.72
-                Zr_p = 1 / 2 * (br_r12_sysbase - br_r23_sysbase + br_r31_sysbase)
-                Zr_s = 1 / 2 * (br_r23_sysbase - br_r31_sysbase + br_r12_sysbase)
-                Zr_t = 1 / 2 * (br_r31_sysbase - br_r12_sysbase + br_r23_sysbase)
-                Zx_p = 1 / 2 * (br_x12_sysbase - br_x23_sysbase + br_x31_sysbase)
-                Zx_s = 1 / 2 * (br_x23_sysbase - br_x31_sysbase + br_x12_sysbase)
-                Zx_t = 1 / 2 * (br_x31_sysbase - br_x12_sysbase + br_x23_sysbase)
-
-                # See PSSE Manual (Section 1.15.1 "Three-Winding Transformer Notes" of Data Formats file)
-                zero_names = []
-                if isapprox(Zx_p, 0.0; atol = eps(Float32))
-                    push!(zero_names, "primary")
-                    Zx_p = ZERO_IMPEDANCE_REACTANCE_THRESHOLD
-                end
-                if isapprox(Zx_s, 0.0; atol = eps(Float32))
-                    push!(zero_names, "secondary")
-                    Zx_s = ZERO_IMPEDANCE_REACTANCE_THRESHOLD
-                end
-                if isapprox(Zx_t, 0.0; atol = eps(Float32))
-                    push!(zero_names, "tertiary")
-                    Zx_t = ZERO_IMPEDANCE_REACTANCE_THRESHOLD
-                end
-                if !isempty(zero_names)
-                    @info "Zero impedance reactance detected in 3W Transformer $(transformer["NAME"]) for winding(s): $(join(zero_names, ", ")). Setting to threshold value $(ZERO_IMPEDANCE_REACTANCE_THRESHOLD)."
-                end
-
-                if iszero(Z_base_device_1)
-                    Zr_p *= mva_ratio_12
-                    Zx_p *= mva_ratio_12
-                else
-                    Zr_p *= Z_base_sys_1 / Z_base_device_1
-                    Zx_p *= Z_base_sys_1 / Z_base_device_1
-                end
-                if iszero(Z_base_device_2)
-                    Zr_s *= mva_ratio_23
-                    Zx_s *= mva_ratio_23
-                else
-                    Zr_s *= Z_base_sys_2 / Z_base_device_2
-                    Zx_s *= Z_base_sys_2 / Z_base_device_2
-                end
-                if iszero(Z_base_device_3)
-                    Zr_t *= mva_ratio_31
-                    Zx_t *= mva_ratio_31
-                else
-                    Zr_t *= Z_base_sys_3 / Z_base_device_3
-                    Zx_t *= Z_base_sys_3 / Z_base_device_3
-                end
+                # CZ == 2: "for resistance and reactance in pu on winding base"; the
+                # impedance is already expressed on the winding-pair base, so no
+                # conversion is applied (passthrough is correct per the PSS/E convention).
 
                 sub_data["name"] = transformer["NAME"]
                 sub_data["bus_primary"] = bus_id1
@@ -1342,13 +1281,6 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["reactive_power_flow_secondary"] = 0.0
                 sub_data["active_power_flow_tertiary"] = 0.0
                 sub_data["reactive_power_flow_tertiary"] = 0.0
-
-                sub_data["r_primary"] = Zr_p
-                sub_data["x_primary"] = Zx_p
-                sub_data["r_secondary"] = Zr_s
-                sub_data["x_secondary"] = Zx_s
-                sub_data["r_tertiary"] = Zr_t
-                sub_data["x_tertiary"] = Zx_t
 
                 if pm_data["source_version"] ∈ ("32", "33")
                     sub_data["rating_primary"] =
@@ -1504,6 +1436,14 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["COD1"] = transformer["COD1"]
                 sub_data["COD2"] = transformer["COD2"]
                 sub_data["COD3"] = transformer["COD3"]
+                for i in 1:3
+                    sub_data["CONT$i"] = transformer["CONT$i"]
+                    sub_data["RMA$i"] = transformer["RMA$i"]
+                    sub_data["RMI$i"] = transformer["RMI$i"]
+                    sub_data["VMA$i"] = transformer["VMA$i"]
+                    sub_data["VMI$i"] = transformer["VMI$i"]
+                    sub_data["NTP$i"] = transformer["NTP$i"]
+                end
 
                 sub_data["ext"] = Dict{String, Any}(
                     "psse_name" => transformer["NAME"],
