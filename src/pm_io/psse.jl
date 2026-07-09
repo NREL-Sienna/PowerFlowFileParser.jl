@@ -171,8 +171,9 @@ function _psse2pm_branch!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             end
             if first(branch["CKT"]) != '@' && first(branch["CKT"]) != '*'
                 sub_data = Dict{String, Any}()
-                sub_data["f_bus"] = pop!(branch, "I")
-                sub_data["t_bus"] = pop!(branch, "J")
+                # a negative terminal bus number marks the metered end; the bus is its magnitude
+                sub_data["f_bus"] = abs(pop!(branch, "I"))
+                sub_data["t_bus"] = abs(pop!(branch, "J"))
                 bus_from = pm_data["bus"][sub_data["f_bus"]]
                 sub_data["base_voltage_from"] = bus_from["base_kv"]
                 bus_to = pm_data["bus"][sub_data["t_bus"]]
