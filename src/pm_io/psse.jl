@@ -2025,6 +2025,7 @@ function _psse2pm_switch_breaker!(pm_data::Dict, pti_data::Dict, import_all::Boo
     @info "Parsing PSS(R)E Switches & Breakers data into a PowerModels Dict..."
     pm_data["breaker"] = []
     pm_data["switch"] = []
+    pm_data["other"] = []
     mapping = Dict('@' => ("breaker", 1), '*' => ("switch", 0))
     mapping_v35 = Dict(2 => "breaker", 3 => "switch")
 
@@ -2070,7 +2071,7 @@ function _psse2pm_switch_breaker!(pm_data::Dict, pti_data::Dict, import_all::Boo
                 )
 
                 if import_all
-                    _import_remaining_keys!(sub_data, branch)
+                    _import_remaining_keys!(sub_data, switching_device)
                 end
 
                 branch_isolated_bus_modifications!(pm_data, sub_data)

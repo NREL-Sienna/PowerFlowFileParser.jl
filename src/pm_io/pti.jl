@@ -1562,6 +1562,13 @@ const _default_substation_data_v35 = Dict(
     "LATI" => 0.0,
     "LONG" => 0.0,
     "SGR" => 0.1,
+    # Node data sub-record defaults (NI and I have no default allowed).
+    "NODES" => Dict(
+        "NAME" => "",
+        "STATUS" => 1,
+        "VM" => 1.0,
+        "VA" => 0.0,
+    ),
 )
 
 const _pti_defaults = Dict(
@@ -2861,6 +2868,13 @@ function _populate_defaults!(data::Dict)
                 end
                 for (field, field_value) in component
                     if isa(field_value, Array)
+                        if !haskey(component_defaults, field)
+                            @warn(
+                                "'$field' in '$section' has no default value",
+                                maxlog = 1,
+                            )
+                            continue
+                        end
                         sub_component_defaults = component_defaults[field]
                         for sub_component in field_value
                             for (sub_field, sub_field_value) in sub_component
