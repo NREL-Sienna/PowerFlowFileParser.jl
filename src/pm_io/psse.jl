@@ -653,6 +653,7 @@ specifications.
 function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     @info "Parsing PSS(R)E Fixed & Switched Shunt data into a PowerModels Dict..."
 
+    # bus records may have already contributed shunt entries
     if !haskey(pm_data, "shunt")
         pm_data["shunt"] = []
     end

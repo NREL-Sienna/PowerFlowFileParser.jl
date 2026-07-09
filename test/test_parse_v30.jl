@@ -31,6 +31,8 @@ end
     pm = PowerModelsData(joinpath(@__DIR__, "fixtures", "v30_bus_shunt.raw"))
     shunts = [s for (_, s) in pm.data["shunt"] if s["shunt_bus"] == 111]
     @test length(shunts) == 1
+    # buses 112 and 113 carry zero GL/BL and must not produce shunts
+    @test length(pm.data["shunt"]) == 1
     # gs/bs come out in system per-unit (raw GL=10.0, BL=5.0 at baseMVA=100.0),
     # matching the FIXED SHUNT conversion applied by make_per_unit!
     @test isapprox(shunts[1]["gs"], 0.1; atol = 1e-6)
@@ -41,4 +43,10 @@ end
     @test_throws IS.DataFormatError PowerModelsData(
         joinpath(@__DIR__, "fixtures", "v31_header.raw"),
     )
+end
+
+@testset "v30 multi-terminal DC NDCLN layout" begin
+    fields = first.(PowerFlowFileParser._pti_dtypes_v30["MULTI-TERMINAL DC NDCLN"])
+    @test fields == ["IDC", "JDC", "DCCKT", "RDC", "LDC"]
+    @test !("MET" in fields)
 end
