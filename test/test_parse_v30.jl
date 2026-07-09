@@ -50,3 +50,22 @@ end
     @test fields == ["IDC", "JDC", "DCCKT", "RDC", "LDC"]
     @test !("MET" in fields)
 end
+
+@testset "v30 real system component counts" begin
+    expected = Dict(
+        "11BUS_KUNDUR_30.raw" =>
+            (bus = 11, load = 2, gen = 4, line = 8, xf2 = 4, xf3 = 0),
+        "RTS_30.raw" =>
+            (bus = 73, load = 51, gen = 160, line = 105, xf2 = 15, xf3 = 0),
+    )
+    for (file, e) in expected
+        pm = PowerModelsData(joinpath(PSSE_RAW_DIR, file)).data
+        @test pm["source_version"] == "30"
+        @test length(pm["bus"]) == e.bus
+        @test length(pm["load"]) == e.load
+        @test length(pm["gen"]) == e.gen
+        @test count(v -> !v["transformer"], values(pm["branch"])) == e.line
+        @test count(v -> v["transformer"], values(pm["branch"])) == e.xf2
+        @test length(get(pm, "3w_transformer", Dict())) == e.xf3
+    end
+end
