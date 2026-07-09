@@ -561,6 +561,22 @@ function _psse2pm_bus!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["source_id"] = ["bus", "$(bus["I"])"]
             sub_data["index"] = pop!(bus, "I")
 
+            gl = pop!(bus, "GL", 0.0)
+            bl = pop!(bus, "BL", 0.0)
+            if gl != 0.0 || bl != 0.0
+                if !haskey(pm_data, "shunt")
+                    pm_data["shunt"] = []
+                end
+                shunt_data = Dict{String, Any}()
+                shunt_data["shunt_bus"] = sub_data["bus_i"]
+                shunt_data["gs"] = gl
+                shunt_data["bs"] = bl
+                shunt_data["status"] = sub_data["bus_status"]
+                shunt_data["source_id"] = ["bus", "$(sub_data["bus_i"])"]
+                shunt_data["index"] = length(pm_data["shunt"]) + 1
+                push!(pm_data["shunt"], shunt_data)
+            end
+
             if import_all
                 _import_remaining_keys!(sub_data, bus)
             end
@@ -637,7 +653,9 @@ specifications.
 function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     @info "Parsing PSS(R)E Fixed & Switched Shunt data into a PowerModels Dict..."
 
-    pm_data["shunt"] = []
+    if !haskey(pm_data, "shunt")
+        pm_data["shunt"] = []
+    end
     if haskey(pti_data, "FIXED SHUNT")
         for shunt in pti_data["FIXED SHUNT"]
             sub_data = Dict{String, Any}()

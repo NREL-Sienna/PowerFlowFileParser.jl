@@ -750,6 +750,9 @@ const _multi_term_ndcln_dtypes = [
 
 const _multi_term_ndcln_dtypes_v35 = _multi_term_ndcln_dtypes
 
+const _multi_term_ndcln_dtypes_v30 =
+    vcat(_multi_term_ndcln_dtypes[1:3], _multi_term_ndcln_dtypes[5:end])
+
 const _multi_section_dtypes = [
     ("I", Int64),
     ("J", Int64),
@@ -1029,6 +1032,7 @@ const _pti_dtypes_v30 = merge(
         "MULTI-SECTION LINE" => _multi_section_dtypes_v30,
         "FACTS CONTROL DEVICE" => _FACTS_dtypes_v30,
         "SWITCHED SHUNT" => _switched_shunt_dtypes_v30,
+        "MULTI-TERMINAL DC NDCLN" => _multi_term_ndcln_dtypes_v30,
     ),
 )
 
