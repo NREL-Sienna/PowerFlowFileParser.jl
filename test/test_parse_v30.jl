@@ -98,3 +98,17 @@ end
     @test quoted["GENERATOR"] == bare["GENERATOR"]
     @test get(quoted, "LOAD", []) == get(bare, "LOAD", [])
 end
+
+@testset "version detection over delimiter styles" begin
+    rv = PowerFlowFileParser._resolve_pti_version
+    # REV must be read from both comma- and whitespace-delimited headers
+    for delim in (", ", "  ")
+        @test rv(["0$(delim)100.0$(delim)33 / c", "c1", "c2"], false) == 33
+        @test rv(["0$(delim)100.0$(delim)32 / c", "c1", "c2"], false) == 32
+    end
+    # a missing REV field defaults to 30 in either style
+    @test rv(["0, 100.00 / c", "c1", "c2"], false) == 30
+    @test rv(["0  100.00 / c", "c1", "c2"], false) == 30
+    # a v35 file is identified by its @! marker regardless of header delimiter
+    @test rv(["@!...", "0 100.0 33"], true) == 35
+end

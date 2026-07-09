@@ -2085,7 +2085,7 @@ function _resolve_pti_version(data_lines, is_v35)
     is_v35 && return 35
     header = findfirst(l -> !startswith(strip(l), "@!") && !isempty(strip(l)), data_lines)
     header === nothing && return 30
-    fields = split(split(data_lines[header], '/')[1], ',')
+    fields, _ = _get_line_elements(data_lines[header])
     length(fields) < 3 && return 30
     rev = tryparse(Int, strip(fields[3]))
     return rev === nothing ? 30 : rev
