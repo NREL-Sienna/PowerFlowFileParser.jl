@@ -37,6 +37,8 @@ const _pti_sections_v35 = vcat(
     "SUBSTATION DATA",
 )
 
+const _pti_sections_v30 = filter(!=("FIXED SHUNT"), _pti_sections)
+
 const _transaction_dtypes = [
     ("IC", Int64),
     ("SBASE", Float64),
@@ -129,6 +131,14 @@ const _bus_dtypes = [
 
 const _bus_dtypes_v35 = _bus_dtypes
 
+const _bus_dtypes_v30 = vcat(
+    _bus_dtypes[1:4],
+    [("GL", Float64), ("BL", Float64)],
+    _bus_dtypes[5:6],
+    _bus_dtypes[8:9],
+    [_bus_dtypes[7]],
+)
+
 const _load_dtypes = [
     ("I", Int64),
     ("ID", String),
@@ -155,6 +165,8 @@ const _load_dtypes_v35 = vcat(
         ("LOADTYPE", String),
     ],
 )
+
+const _load_dtypes_v30 = _load_dtypes[1:13]
 
 const _fixed_shunt_dtypes = [
     ("I", Int64),
@@ -205,6 +217,8 @@ const _generator_dtypes_v35 = vcat(
     _generator_dtypes[19:end],
 )
 
+const _generator_dtypes_v30 = _generator_dtypes[1:26]
+
 const _branch_dtypes = [
     ("I", Int64),
     ("J", Int64),
@@ -251,6 +265,8 @@ const _branch_dtypes_v35 = vcat(
     ],
     _branch_dtypes[10:end],
 )
+
+const _branch_dtypes_v30 = vcat(_branch_dtypes[1:14], _branch_dtypes[16:end])
 
 const _switching_dtypes_v35 = [
     ("I", Int64),
@@ -302,6 +318,8 @@ const _transformer_dtypes = [
 
 const _transformer_dtypes_v35 = _transformer_dtypes
 
+const _transformer_dtypes_v30 = _transformer_dtypes[1:20]
+
 const _transformer_3_1_dtypes = [
     ("R1-2", Float64),
     ("X1-2", Float64),
@@ -317,6 +335,8 @@ const _transformer_3_1_dtypes = [
 ]
 
 const _transformer_3_1_dtypes_v35 = _transformer_3_1_dtypes
+
+const _transformer_3_1_dtypes_v30 = _transformer_3_1_dtypes
 
 const _transformer_3_2_dtypes = [
     ("WINDV1", Float64),
@@ -359,6 +379,8 @@ const _transformer_3_2_dtypes_v35 = vcat(
     _transformer_3_2_dtypes[9:end],
 )
 
+const _transformer_3_2_dtypes_v30 = _transformer_3_2_dtypes[1:16]
+
 const _transformer_3_3_dtypes = [
     ("WINDV2", Float64),
     ("NOMV2", Float64),
@@ -399,6 +421,8 @@ const _transformer_3_3_dtypes_v35 = vcat(
     [("NOD2", Int64)],
     _transformer_3_3_dtypes[9:end],
 )
+
+const _transformer_3_3_dtypes_v30 = _transformer_3_3_dtypes[1:16]
 
 const _transformer_3_4_dtypes = [
     ("WINDV3", Float64),
@@ -441,10 +465,14 @@ const _transformer_3_4_dtypes_v35 = vcat(
     _transformer_3_4_dtypes[9:end],
 )
 
+const _transformer_3_4_dtypes_v30 = _transformer_3_4_dtypes[1:16]
+
 const _transformer_2_1_dtypes =
     [("R1-2", Float64), ("X1-2", Float64), ("SBASE1-2", Float64)]
 
 const _transformer_2_1_dtypes_v35 = _transformer_2_1_dtypes
+
+const _transformer_2_1_dtypes_v30 = _transformer_2_1_dtypes
 
 const _transformer_2_2_dtypes = [
     ("WINDV1", Float64),
@@ -487,9 +515,13 @@ const _transformer_2_2_dtypes_v35 = vcat(
     _transformer_2_2_dtypes[9:end],
 )
 
+const _transformer_2_2_dtypes_v30 = _transformer_2_2_dtypes[1:16]
+
 const _transformer_2_3_dtypes = [("WINDV2", Float64), ("NOMV2", Float64)]
 
 const _transformer_2_3_dtypes_v35 = _transformer_2_3_dtypes
+
+const _transformer_2_3_dtypes_v30 = _transformer_2_3_dtypes
 
 const _area_interchange_dtypes =
     [("I", Int64), ("ISW", Int64), ("PDES", Float64), ("PTOL", Float64), ("ARNAME", String)]
@@ -552,6 +584,8 @@ const _two_terminal_line_dtypes_v35 = vcat(
     [("NDI", Int64)],
     _two_terminal_line_dtypes[43:end],
 )
+
+const _two_terminal_line_dtypes_v30 = vcat([("I", Int64)], _two_terminal_line_dtypes[2:end])
 
 const _vsc_line_dtypes = [
     ("NAME", String),
@@ -644,6 +678,8 @@ const _multi_term_main_dtypes = [
 
 const _multi_term_main_dtypes_v35 = _multi_term_main_dtypes
 
+const _multi_term_main_dtypes_v30 = vcat([("I", Int64)], _multi_term_main_dtypes[2:end])
+
 const _multi_term_nconv_dtypes = [
     ("IB", Int64),
     ("N", Int64),
@@ -707,6 +743,8 @@ const _multi_section_dtypes = [
 
 const _multi_section_dtypes_v35 = _multi_section_dtypes
 
+const _multi_section_dtypes_v30 = vcat(_multi_section_dtypes[1:3], _multi_section_dtypes[5:end])
+
 const _zone_dtypes = [("I", Int64), ("ZONAME", String)]
 
 const _zone_dtypes_v35 = _zone_dtypes
@@ -752,6 +790,8 @@ const _FACTS_dtypes_v35 = vcat(
         ("MNAME", String),
     ],
 )
+
+const _FACTS_dtypes_v30 = vcat([("N", Int64)], _FACTS_dtypes[2:19])
 
 const _switched_shunt_dtypes = [
     ("I", Int64),
@@ -801,6 +841,8 @@ const _switched_shunt_dtypes_v35 = vcat(
         ("S8", Int64), ("N8", Int64), ("B8", Float64),
     ],
 )
+
+const _switched_shunt_dtypes_v30 = vcat(_switched_shunt_dtypes[1:2], _switched_shunt_dtypes[5:end])
 
 # TODO: Account for multiple lines in GNE Device entries
 const _gne_device_dtypes = [
@@ -942,6 +984,29 @@ const _pti_dtypes_v35 = Dict{String, Array}(
     "SUBSTATION DATA" => _substation_dtypes_v35,
 )
 
+const _pti_dtypes_v30 = merge(
+    filter(p -> p.first != "FIXED SHUNT", _pti_dtypes),
+    Dict{String, Array}(
+        "BUS" => _bus_dtypes_v30,
+        "LOAD" => _load_dtypes_v30,
+        "GENERATOR" => _generator_dtypes_v30,
+        "BRANCH" => _branch_dtypes_v30,
+        "TRANSFORMER" => _transformer_dtypes_v30,
+        "TRANSFORMER TWO-WINDING LINE 1" => _transformer_2_1_dtypes_v30,
+        "TRANSFORMER TWO-WINDING LINE 2" => _transformer_2_2_dtypes_v30,
+        "TRANSFORMER TWO-WINDING LINE 3" => _transformer_2_3_dtypes_v30,
+        "TRANSFORMER THREE-WINDING LINE 1" => _transformer_3_1_dtypes_v30,
+        "TRANSFORMER THREE-WINDING LINE 2" => _transformer_3_2_dtypes_v30,
+        "TRANSFORMER THREE-WINDING LINE 3" => _transformer_3_3_dtypes_v30,
+        "TRANSFORMER THREE-WINDING LINE 4" => _transformer_3_4_dtypes_v30,
+        "TWO-TERMINAL DC" => _two_terminal_line_dtypes_v30,
+        "MULTI-TERMINAL DC" => _multi_term_main_dtypes_v30,
+        "MULTI-SECTION LINE" => _multi_section_dtypes_v30,
+        "FACTS CONTROL DEVICE" => _FACTS_dtypes_v30,
+        "SWITCHED SHUNT" => _switched_shunt_dtypes_v30,
+    ),
+)
+
 const _default_case_identification = Dict(
     "IC" => 0,
     "SBASE" => 100.0,
@@ -959,6 +1024,8 @@ const _default_case_identification_v35 = Dict(
     "NXFRAT" => 0,
     "BASFRQ" => 60,
 )
+
+const _default_case_identification_v30 = merge(_default_case_identification, Dict("REV" => 30))
 
 const _default_bus = Dict(
     "BASKV" => 0.0,
@@ -1511,6 +1578,11 @@ const _pti_defaults_v35 = Dict(
     "GNE DEVICE" => _default_gne_device,
     "INDUCTION MACHINE" => _default_induction_machine,
     "SUBSTATION DATA" => _default_substation_data_v35,
+)
+
+const _pti_defaults_v30 = merge(
+    filter(p -> p.first != "FIXED SHUNT", _pti_defaults),
+    Dict{String, Dict{String}}("CASE IDENTIFICATION" => _default_case_identification_v30),
 )
 
 function _correct_nothing_values!(data::Dict)
