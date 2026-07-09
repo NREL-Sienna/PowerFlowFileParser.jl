@@ -69,3 +69,17 @@ end
         @test length(get(pm, "3w_transformer", Dict())) == e.xf3
     end
 end
+
+@testset "free-format field tokenizer" begin
+    sf = PowerFlowFileParser._split_fields
+    # blank-delimited
+    @test sf("0    100.00") == ["0", "100.00"]
+    # comma-delimited with padding absorbed
+    @test sf("0,   100.00, 33") == ["0", "100.00", "33"]
+    # blank-delimited with a single-quoted name containing interior blanks
+    @test sf("1 'ADK     ' 138.00") == ["1", "'ADK     '", "138.00"]
+    # double-quoted name with interior blanks must not be split
+    @test sf("\"LINE       1\",1,20.0") == ["\"LINE       1\"", "1", "20.0"]
+    # consecutive commas mark a skipped field
+    @test sf("1002,,  345.0") == ["1002", "", "345.0"]
+end

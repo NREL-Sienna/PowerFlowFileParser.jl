@@ -1857,7 +1857,64 @@ function _parse_line_element!(
 end
 
 const _comment_split = r"(?!\B[\'][^\']*)[\/](?![^\']*[\']\B)"
-const _split_string = r",(?=(?:[^']*'[^']*')*[^']*$)"
+
+"""
+    _split_fields(line)
+
+Splits a free-format PTI line into fields. The separator is a comma with
+optional surrounding whitespace, or a run of whitespace, evaluated outside
+quoted regions. Both quote styles are protected, and consecutive commas mark
+skipped (empty) fields.
+"""
+function _split_fields(line::AbstractString)
+    fields = String[]
+    buf = IOBuffer()
+    in_single = false
+    in_double = false
+    i = firstindex(line)
+    last = lastindex(line)
+    while i <= last
+        c = line[i]
+        if in_single
+            print(buf, c)
+            c == '\'' && (in_single = false)
+            i = nextind(line, i)
+        elseif in_double
+            print(buf, c)
+            c == '"' && (in_double = false)
+            i = nextind(line, i)
+        elseif c == '\''
+            in_single = true
+            print(buf, c)
+            i = nextind(line, i)
+        elseif c == '"'
+            in_double = true
+            print(buf, c)
+            i = nextind(line, i)
+        elseif c == ',' || isspace(c)
+            push!(fields, String(take!(buf)))
+            comma_count = 0
+            while i <= last
+                cc = line[i]
+                if cc == ','
+                    comma_count += 1
+                elseif isspace(cc)
+                else
+                    break
+                end
+                i = nextind(line, i)
+            end
+            for _ in 2:comma_count
+                push!(fields, "")
+            end
+        else
+            print(buf, c)
+            i = nextind(line, i)
+        end
+    end
+    push!(fields, String(take!(buf)))
+    return fields
+end
 
 """
     _get_line_elements(line)
@@ -1880,7 +1937,7 @@ function _get_line_elements(line::AbstractString)
     line = strip(line_comment[1])
     comment = length(line_comment) > 1 ? strip(line_comment[2]) : ""
 
-    elements = split(line, _split_string)
+    elements = _split_fields(line)
 
     return (elements, comment)
 end
@@ -2304,7 +2361,7 @@ function _parse_pti_data(data_io::IO)
                     _parse_line_element!(section_data, elements, section, current_dtypes)
                 catch message
                     throw(
-                        @error(
+                        DataFormatError(
                             "Parsing failed at line $line_index: $(sprint(showerror, message))"
                         )
                     )
@@ -2322,7 +2379,7 @@ function _parse_pti_data(data_io::IO)
                         )
                     catch message
                         throw(
-                            @error(
+                            DataFormatError(
                                 "Parsing failed at line $line_index: $(sprint(showerror, message))",
                             ),
                         )
@@ -2378,7 +2435,7 @@ function _parse_pti_data(data_io::IO)
                         )
                     catch message
                         throw(
-                            @error(
+                            DataFormatError(
                                 "Parsing failed at line $line_index: $(sprint(showerror, message))",
                             ),
                         )
@@ -2425,7 +2482,7 @@ function _parse_pti_data(data_io::IO)
                     end
                 catch message
                     throw(
-                        @error(
+                        DataFormatError(
                             "Parsing failed at line $line_index: $(sprint(showerror, message))",
                         ),
                     )
@@ -2450,7 +2507,7 @@ function _parse_pti_data(data_io::IO)
                         )
                     catch message
                         throw(
-                            @error(
+                            DataFormatError(
                                 "Parsing failed at line $line_index: $(sprint(showerror, message))",
                             ),
                         )
@@ -2496,7 +2553,7 @@ function _parse_pti_data(data_io::IO)
                     _parse_line_element!(section_data, elements, section, current_dtypes)
                 catch message
                     throw(
-                        @error(
+                        DataFormatError(
                             "Parsing failed at line $line_index: $(sprint(showerror, message))",
                         ),
                     )
@@ -2509,7 +2566,7 @@ function _parse_pti_data(data_io::IO)
                     _parse_line_element!(section_data, elements, section, current_dtypes)
                 catch message
                     throw(
-                        @error(
+                        DataFormatError(
                             "Parsing failed at line $line_index: $(sprint(showerror, message))",
                         ),
                     )
@@ -2528,7 +2585,7 @@ function _parse_pti_data(data_io::IO)
                         )
                     catch message
                         throw(
-                            @error(
+                            DataFormatError(
                                 "Parsing failed at line $line_index: $(sprint(showerror, message))",
                             ),
                         )
