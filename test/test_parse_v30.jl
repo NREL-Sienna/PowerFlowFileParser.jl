@@ -17,8 +17,10 @@
     @test length(pm.data["3w_transformer"]) == 1
 
     # branch 111-112 series impedance from the raw file
-    b = first(v for v in values(pm.data["branch"])
-              if Set((v["f_bus"], v["t_bus"])) == Set((111, 112)) && !v["transformer"])
+    b = first(
+        v for v in values(pm.data["branch"])
+        if Set((v["f_bus"], v["t_bus"])) == Set((111, 112)) && !v["transformer"]
+    )
     @test isapprox(b["br_r"], 0.001870; atol = 1e-6)
     @test isapprox(b["br_x"], 0.004420; atol = 1e-6)
 

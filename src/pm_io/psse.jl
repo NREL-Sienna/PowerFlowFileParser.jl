@@ -1616,8 +1616,11 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
             sub_data["transfer_setpoint"] = dcline["SETVL"]
 
-            sub_data["name"] = pm_data["source_version"] == "30" ? string(dcline["I"]) :
+            sub_data["name"] = if pm_data["source_version"] == "30"
+                string(dcline["I"])
+            else
                 strip(dcline["NAME"], ['"', '\''])
+            end
             sub_data["f_bus"] = dcline["IPR"]
             sub_data["t_bus"] = dcline["IPI"]
             if !haskey(pm_data["bus"], sub_data["f_bus"]) ||
@@ -1755,8 +1758,11 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 "two-terminal dc",
                 sub_data["f_bus"],
                 sub_data["t_bus"],
-                pm_data["source_version"] == "30" ? pop!(dcline, "I") :
-                pop!(dcline, "NAME"),
+                if pm_data["source_version"] == "30"
+                    pop!(dcline, "I")
+                else
+                    pop!(dcline, "NAME")
+                end,
             ]
             sub_data["index"] = length(pm_data["dcline"]) + 1
 
@@ -1909,8 +1915,11 @@ function _psse2pm_facts!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             )
             sub_data = Dict{String, Any}()
 
-            sub_data["name"] = pm_data["source_version"] == "30" ? string(facts["N"]) :
+            sub_data["name"] = if pm_data["source_version"] == "30"
+                string(facts["N"])
+            else
                 strip(facts["NAME"], ['"', '\''])
+            end
             sub_data["control_mode"] = facts["MODE"]
 
             sub_data["bus"] = facts["I"]  # Sending end bus number

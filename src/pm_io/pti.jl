@@ -771,7 +771,8 @@ const _multi_section_dtypes = [
 
 const _multi_section_dtypes_v35 = _multi_section_dtypes
 
-const _multi_section_dtypes_v30 = vcat(_multi_section_dtypes[1:3], _multi_section_dtypes[5:end])
+const _multi_section_dtypes_v30 =
+    vcat(_multi_section_dtypes[1:3], _multi_section_dtypes[5:end])
 
 const _zone_dtypes = [("I", Int64), ("ZONAME", String)]
 
@@ -870,7 +871,8 @@ const _switched_shunt_dtypes_v35 = vcat(
     ],
 )
 
-const _switched_shunt_dtypes_v30 = vcat(_switched_shunt_dtypes[1:2], _switched_shunt_dtypes[5:end])
+const _switched_shunt_dtypes_v30 =
+    vcat(_switched_shunt_dtypes[1:2], _switched_shunt_dtypes[5:end])
 
 # TODO: Account for multiple lines in GNE Device entries
 const _gne_device_dtypes = [
@@ -1054,7 +1056,8 @@ const _default_case_identification_v35 = Dict(
     "BASFRQ" => 60,
 )
 
-const _default_case_identification_v30 = merge(_default_case_identification, Dict("REV" => 30))
+const _default_case_identification_v30 =
+    merge(_default_case_identification, Dict("REV" => 30))
 
 const _default_bus = Dict(
     "BASKV" => 0.0,
@@ -2363,8 +2366,8 @@ function _parse_pti_data(data_io::IO)
                 catch message
                     throw(
                         DataFormatError(
-                            "Parsing failed at line $line_index: $(sprint(showerror, message))"
-                        )
+                            "Parsing failed at line $line_index: $(sprint(showerror, message))",
+                        ),
                     )
                 end
                 line_index += 1
@@ -2829,10 +2832,20 @@ Internal function. Populates empty fields with PSS(R)E PTI v33 default values
 function _populate_defaults!(data::Dict)
     rev = get(data["CASE IDENTIFICATION"][1], "REV", 30)
     version = rev == "" ? 30 : rev
-    sections = version == 35 ? _pti_sections_v35 :
-               version in (29, 30) ? _pti_sections_v30 : _pti_sections
-    defaults = version == 35 ? _pti_defaults_v35 :
-               version in (29, 30) ? _pti_defaults_v30 : _pti_defaults
+    sections = if version == 35
+        _pti_sections_v35
+    elseif version in (29, 30)
+        _pti_sections_v30
+    else
+        _pti_sections
+    end
+    defaults = if version == 35
+        _pti_defaults_v35
+    elseif version in (29, 30)
+        _pti_defaults_v30
+    else
+        _pti_defaults
+    end
 
     for section in sections
         if haskey(data, section)
