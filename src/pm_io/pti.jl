@@ -2180,7 +2180,8 @@ function _parse_pti_data(data_io::IO)
 
         (elements, comment) = _get_line_elements(line)
 
-        first_element = strip(elements[1])
+        # a section terminator may be written as a bare or quoted zero (or Q)
+        first_element = strip(strip(elements[1]), ['\'', '"'])
 
         if is_v35 && (line_index == 3 || line_index == 4) &&
            section_v35 == "CASE IDENTIFICATION"

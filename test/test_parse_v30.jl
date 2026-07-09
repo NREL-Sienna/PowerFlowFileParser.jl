@@ -83,3 +83,18 @@ end
     # consecutive commas mark a skipped field
     @test sf("1002,,  345.0") == ["1002", "", "345.0"]
 end
+
+@testset "quoted-zero section terminator" begin
+    p(s) = PowerFlowFileParser._parse_pti_data(IOBuffer(s))
+    header = "0, 100.0, 33 / t\ncomment1\ncomment2\n"
+    bus = "1,'BUS1',138.0,3,1,1,1,1.0,0.0,1.1,0.9,1.1,0.9\n0 / end bus\n"
+    fixed_shunt = "0 / end fixed shunt\n"
+    gen = "1,'1',0.0,0.0,100.0,-100.0,1.0\n0 / end gen\n"
+    # an empty section terminated by a quoted zero must behave like a bare zero
+    bare = p(header * bus * "0 / end load\n" * fixed_shunt * gen)
+    quoted = p(header * bus * "'0' / end load\n" * fixed_shunt * gen)
+    @test haskey(quoted, "GENERATOR")
+    @test quoted["GENERATOR"][1]["I"] == 1
+    @test quoted["GENERATOR"] == bare["GENERATOR"]
+    @test get(quoted, "LOAD", []) == get(bare, "LOAD", [])
+end
