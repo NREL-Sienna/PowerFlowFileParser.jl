@@ -37,7 +37,32 @@ const _pti_sections_v35 = vcat(
     "SUBSTATION DATA",
 )
 
-const _pti_sections_v30 = filter(!=("FIXED SHUNT"), _pti_sections)
+"""
+Section order for PSS(R)E v29/v30 raw files. v30 has no FIXED SHUNT section, and
+places SWITCHED SHUNT immediately after VOLTAGE SOURCE CONVERTER rather than near
+the end of the file as in v33/v35.
+"""
+const _pti_sections_v30 = [
+    "CASE IDENTIFICATION",
+    "BUS",
+    "LOAD",
+    "GENERATOR",
+    "BRANCH",
+    "TRANSFORMER",
+    "AREA INTERCHANGE",
+    "TWO-TERMINAL DC",
+    "VOLTAGE SOURCE CONVERTER",
+    "SWITCHED SHUNT",
+    "IMPEDANCE CORRECTION",
+    "MULTI-TERMINAL DC",
+    "MULTI-SECTION LINE",
+    "ZONE",
+    "INTER-AREA TRANSFER",
+    "OWNER",
+    "FACTS CONTROL DEVICE",
+    "GNE DEVICE",
+    "INDUCTION MACHINE",
+]
 
 const _transaction_dtypes = [
     ("IC", Int64),
@@ -1580,9 +1605,17 @@ const _pti_defaults_v35 = Dict(
     "SUBSTATION DATA" => _default_substation_data_v35,
 )
 
+const _default_generator_v30 = merge(_default_generator, Dict("WMOD" => 0, "WPF" => 1.0))
+
+const _default_load_v30 = merge(_default_load, Dict("INTRPT" => 0))
+
 const _pti_defaults_v30 = merge(
     filter(p -> p.first != "FIXED SHUNT", _pti_defaults),
-    Dict{String, Dict{String}}("CASE IDENTIFICATION" => _default_case_identification_v30),
+    Dict{String, Dict{String}}(
+        "CASE IDENTIFICATION" => _default_case_identification_v30,
+        "GENERATOR" => _default_generator_v30,
+        "LOAD" => _default_load_v30,
+    ),
 )
 
 function _correct_nothing_values!(data::Dict)
@@ -1983,6 +2016,21 @@ function process_substation_data!(
 end
 
 """
+Determine the PSS(R)E revision number of a raw file from its CASE IDENTIFICATION
+header line (the REV field), falling back to 30 when the field is absent or
+unparseable. v35 files are identified separately via the `@!` comment convention.
+"""
+function _resolve_pti_version(data_lines, is_v35)
+    is_v35 && return 35
+    header = findfirst(l -> !startswith(strip(l), "@!") && !isempty(strip(l)), data_lines)
+    header === nothing && return 30
+    fields = split(split(data_lines[header], '/')[1], ',')
+    length(fields) < 3 && return 30
+    rev = tryparse(Int, strip(fields[3]))
+    return rev === nothing ? 30 : rev
+end
+
+"""
     _parse_pti_data(data_string, sections)
 
 Internal function. Parse a PTI raw file into a `Dict`, given the
@@ -1990,23 +2038,30 @@ Internal function. Parse a PTI raw file into a `Dict`, given the
 file (typically given by default by `get_pti_sections()`.
 """
 function _parse_pti_data(data_io::IO)
-    sections = deepcopy(_pti_sections)
-    sections_v35 = deepcopy(_pti_sections_v35)
     data_lines = readlines(data_io)
     skip_lines = 0
     skip_sublines = 0
     subsection = ""
-    is_v35 = false
+    is_v35 = any(startswith.(data_lines, "@!"))
+    version = _resolve_pti_version(data_lines, is_v35)
+
+    if version ∉ (29, 30, 32, 33, 35)
+        throw(IS.DataFormatError("Unsupported PSS(R)E raw version: $version"))
+    end
+
+    active_sections = if version == 35
+        deepcopy(_pti_sections_v35)
+    elseif version in (29, 30)
+        deepcopy(_pti_sections_v30)
+    else
+        deepcopy(_pti_sections)
+    end
 
     pti_data = Dict{String, Array{Dict}}()
 
-    section = popfirst!(sections)
-    section_v35 = popfirst!(sections_v35)
+    section = popfirst!(active_sections)
+    section_v35 = section
     section_data = Dict{String, Any}()
-
-    if any(startswith.(data_lines, "@!"))
-        is_v35 = true
-    end
 
     header_line_start = is_v35 ? 2 : 1 # Start in second line due to @!
     # Dynamically handle the start of BUS DATA section
@@ -2045,7 +2100,13 @@ function _parse_pti_data(data_io::IO)
         4 # Start for all v33 files
     end
 
-    current_dtypes = is_v35 ? _pti_dtypes_v35 : _pti_dtypes
+    current_dtypes = if version == 35
+        _pti_dtypes_v35
+    elseif version in (29, 30)
+        _pti_dtypes_v30
+    else
+        _pti_dtypes
+    end
 
     line_index = 1
     while line_index <= length(data_lines)
@@ -2085,7 +2146,7 @@ function _parse_pti_data(data_io::IO)
         elseif line_index > (is_v35 ? bus_data_start - 1 : 3) && length(elements) != 0 &&
                first_element == "0"
             if line_index == bus_data_start
-                section = is_v35 ? popfirst!(sections_v35) : popfirst!(sections)
+                section = popfirst!(active_sections)
             end
 
             if length(elements) > 1
@@ -2097,7 +2158,7 @@ function _parse_pti_data(data_io::IO)
                     IS.LOG_GROUP_PARSING
             end
 
-            current_sections = is_v35 ? sections_v35 : sections
+            current_sections = active_sections
             if !isempty(current_sections)
                 section = popfirst!(current_sections)
             end
@@ -2106,7 +2167,7 @@ function _parse_pti_data(data_io::IO)
             continue
         else
             if line_index == bus_data_start
-                section = is_v35 ? popfirst!(sections_v35) : popfirst!(sections)
+                section = popfirst!(active_sections)
                 section_data = Dict{String, Any}()
             end
 
@@ -2704,10 +2765,25 @@ end
 Internal function. Populates empty fields with PSS(R)E PTI v33 default values
 """
 function _populate_defaults!(data::Dict)
-    for section in _pti_sections
+    rev = get(data["CASE IDENTIFICATION"][1], "REV", 30)
+    version = rev == "" ? 30 : rev
+    sections = version == 35 ? _pti_sections_v35 :
+               version in (29, 30) ? _pti_sections_v30 : _pti_sections
+    defaults = version == 35 ? _pti_defaults_v35 :
+               version in (29, 30) ? _pti_defaults_v30 : _pti_defaults
+
+    for section in sections
         if haskey(data, section)
-            component_defaults = _pti_defaults[section]
+            component_defaults = defaults[section]
             for component in data[section]
+                if version in (29, 30) &&
+                   section in ("GENERATOR", "LOAD", "BUS", "SWITCHED SHUNT")
+                    for (field, default_value) in component_defaults
+                        if !haskey(component, field)
+                            component[field] = default_value
+                        end
+                    end
+                end
                 for (field, field_value) in component
                     if isa(field_value, Array)
                         sub_component_defaults = component_defaults[field]
