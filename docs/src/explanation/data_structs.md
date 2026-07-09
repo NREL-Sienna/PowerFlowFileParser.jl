@@ -9,15 +9,6 @@ pm_data = PowerModelsData("case30.m")
 buses = pm_data.data["bus"]
 ```
 
-## PowerFlowDataNetwork
-
-Container wrapping PowerFlowData.Network typed structs. Access parsed components via `.data.buses`, `.data.generators`, etc.
-
-```julia
-pfd_data = PowerFlowDataNetwork("network.raw")
-buses = pfd_data.data.buses
-```
-
 ## Main Functions
 
 ### `parse_file(file; kwargs...)`

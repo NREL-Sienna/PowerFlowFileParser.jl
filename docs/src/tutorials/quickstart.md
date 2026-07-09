@@ -16,16 +16,6 @@ pm_data = PowerModelsData("case30.m")
 buses = pm_data.data["bus"]
 ```
 
-## Alternative Parser
-
-Use PowerFlowData.jl parser for PSS/E files:
-
-```julia
-pfd_data = PowerFlowDataNetwork("network.raw")
-buses = pfd_data.data.buses
-generators = pfd_data.data.generators
-```
-
 ## Advanced Options
 
 Control validation and data corrections:
