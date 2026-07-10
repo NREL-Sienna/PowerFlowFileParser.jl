@@ -472,6 +472,7 @@ function _psse2pm_area_interchange!(pm_data::Dict, pti_data::Dict, import_all::B
             sub_data["bus_number"] = pop!(area_int, "ISW")
             sub_data["net_interchange"] = pop!(area_int, "PDES")
             sub_data["tol_interchange"] = pop!(area_int, "PTOL")
+            sub_data["source_id"] = ["area_interchange", sub_data["area_number"]]
             sub_data["index"] = length(pm_data["area_interchange"]) + 1
             if import_all
                 _import_remaining_keys!(sub_data, area_int)
@@ -493,7 +494,12 @@ function _psse2pm_interarea_transfer!(pm_data::Dict, pti_data::Dict, import_all:
             sub_data["area_to"] = pop!(interarea, "ARTO")
             sub_data["transfer_id"] = pop!(interarea, "TRID")
             sub_data["power_transfer"] = pop!(interarea, "PTRAN")
-
+            sub_data["source_id"] = [
+                "interarea_transfer",
+                sub_data["area_from"],
+                sub_data["area_to"],
+                sub_data["transfer_id"],
+            ]
             sub_data["index"] = length(pm_data["interarea_transfer"]) + 1
             if import_all
                 _import_remaining_keys!(sub_data, interarea)
@@ -513,12 +519,33 @@ function _psse2pm_zone!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data = Dict{String, Any}()
             sub_data["zone_number"] = pop!(zone, "I")
             sub_data["zone_name"] = pop!(zone, "ZONAME")
+            sub_data["source_id"] = ["zone", sub_data["zone_number"]]
             sub_data["index"] = length(pm_data["zone"]) + 1
             if import_all
                 _import_remaining_keys!(sub_data, zone)
             end
 
             push!(pm_data["zone"], sub_data)
+        end
+    end
+end
+
+function _psse2pm_owner!(pm_data::Dict, pti_data::Dict, import_all::Bool)
+    @info "Parsing PSS(R)E Owner data into a PowerModels Dict..."
+    pm_data["owner"] = []
+
+    if haskey(pti_data, "OWNER")
+        for owner in pti_data["OWNER"]
+            sub_data = Dict{String, Any}()
+            sub_data["owner_number"] = pop!(owner, "I")
+            sub_data["owner_name"] = pop!(owner, "OWNAME")
+            sub_data["source_id"] = ["owner", sub_data["owner_number"]]
+            sub_data["index"] = length(pm_data["owner"]) + 1
+            if import_all
+                _import_remaining_keys!(sub_data, owner)
+            end
+
+            push!(pm_data["owner"], sub_data)
         end
     end
 end
@@ -1330,6 +1357,13 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["bus_primary"] = bus_id1
                 sub_data["bus_secondary"] = bus_id2
                 sub_data["bus_tertiary"] = bus_id3
+                sub_data["source_id"] = [
+                    "transformer3w",
+                    transformer["I"],
+                    transformer["J"],
+                    transformer["K"],
+                    transformer["CKT"],
+                ]
 
                 sub_data["available"] = false
                 if transformer["STAT"] != 0
@@ -2199,6 +2233,7 @@ function _psse2pm_impedance_correction!(pm_data::Dict, pti_data::Dict, import_al
                 sub_data["tap_or_angle"] = sort_values_by_key_prefix(imp_correction, "T")
             end
 
+            sub_data["source_id"] = ["impedance_correction", sub_data["table_number"]]
             sub_data["index"] = length(pm_data["impedance_correction"]) + 1
 
             if import_all
@@ -2225,6 +2260,7 @@ function _psse2pm_substation_data!(pm_data::Dict, pti_data::Dict, import_all::Bo
             sub_data["latitude"] = substation_data["LATITUDE"]
             sub_data["longitude"] = substation_data["LONGITUDE"]
             sub_data["nodes"] = substation_data["NODES"]
+            sub_data["source_id"] = ["substation", sub_data["substation_is"]]
 
             if import_all
                 _import_remaining_keys!(sub_data, substation_data)
@@ -2272,6 +2308,7 @@ function _pti_to_powermodels!(
     _psse2pm_interarea_transfer!(pm_data, pti_data, import_all)
     _psse2pm_area_interchange!(pm_data, pti_data, import_all)
     _psse2pm_zone!(pm_data, pti_data, import_all)
+    _psse2pm_owner!(pm_data, pti_data, import_all)
     # Order matters here. Buses need to parsed first
     _psse2pm_bus!(pm_data, pti_data, import_all)
     # Branches need to be parsed after buses to find topologically connected buses
@@ -2342,6 +2379,16 @@ function _pti_to_powermodels!(
                 "TRANSFORMER",
                 "TWO-TERMINAL DC",
                 "VOLTAGE SOURCE CONVERTER",
+                "AREA INTERCHANGE",
+                "INTER-AREA TRANSFER",
+                "ZONE",
+                "SWITCHING DEVICE",
+                "MULTI-SECTION LINE",
+                "IMPEDANCE CORRECTION",
+                "SUBSTATION DATA",
+                "FACTS CONTROL DEVICE",
+                "OWNER",
+                "SWITCHES_AS_BRANCHES",
             ],
         )
     end
