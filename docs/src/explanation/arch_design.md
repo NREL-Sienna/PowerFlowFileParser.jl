@@ -2,12 +2,9 @@
 
 PowerFlowFileParser.jl follows a clear separation of concerns:
 
-**Parse, Don't Transform**: The library's primary responsibility is converting text files into simple, well-structured intermediate representations (dictionaries or typed structs). Conversion to domain-specific types like PowerSystems.jl components is handled downstream.
+**Parse, Don't Transform**: The library's primary responsibility is converting text files into simple, well-structured PowerModels dictionaries. Conversion to domain-specific types like PowerSystems.jl components is handled downstream.
 
-**Two Parsing Pathways**:
-
- 1. **PowerModels-based**: Produces standardized dictionaries via `parse_file()` or `PowerModelsData`
- 2. **PowerFlowData-based**: Produces typed structs via `PowerFlowDataNetwork`
+**Parsing Pathway**: MATPOWER and PSS/E files are parsed into standardized PowerModels dictionaries via `parse_file()` or `PowerModelsData`.
 
 This architecture keeps the parser lightweight, testable, and reusable across multiple downstream packages.
 

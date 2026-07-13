@@ -1,6 +1,6 @@
 name = "PowerFlowFileParser"
 uuid = "bed98974-b02e-5e2f-9ee0-a103f5c450dd"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Sienna Team"]
 
 [deps]
@@ -8,7 +8,6 @@ DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 InfrastructureSystems = "2cd47ed4-ca9b-11e9-27f2-ab636a7671f1"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-PowerFlowData = "dd99e9e3-7471-40fc-b48d-a10501125371"
 Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
@@ -17,7 +16,6 @@ DataStructures = "0.19.3"
 DocStringExtensions = "~0.8, ~0.9"
 InfrastructureSystems = "^3.2"
 LinearAlgebra = "1"
-PowerFlowData = "1.6.0"
 Unicode = "1"
 YAML = "0.4.16"
 julia = "^1.10"
