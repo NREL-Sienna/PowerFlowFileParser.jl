@@ -171,8 +171,9 @@ function _psse2pm_branch!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             end
             if first(branch["CKT"]) != '@' && first(branch["CKT"]) != '*'
                 sub_data = Dict{String, Any}()
-                sub_data["f_bus"] = pop!(branch, "I")
-                sub_data["t_bus"] = pop!(branch, "J")
+                # a negative terminal bus number marks the metered end; the bus is its magnitude
+                sub_data["f_bus"] = abs(pop!(branch, "I"))
+                sub_data["t_bus"] = abs(pop!(branch, "J"))
                 bus_from = pm_data["bus"][sub_data["f_bus"]]
                 sub_data["base_voltage_from"] = bus_from["base_kv"]
                 bus_to = pm_data["bus"][sub_data["t_bus"]]
@@ -195,7 +196,7 @@ function _psse2pm_branch!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     "LEN" => pop!(branch, "LEN"),
                 )
 
-                if pm_data["source_version"] ∈ ("32", "33")
+                if pm_data["source_version"] ∈ ("30", "32", "33")
                     sub_data["rate_a"] = pop!(branch, "RATEA")
                     sub_data["rate_b"] = pop!(branch, "RATEB")
                     sub_data["rate_c"] = pop!(branch, "RATEC")
@@ -257,6 +258,10 @@ function branch_isolated_bus_modifications!(pm_data::Dict, branch_data::Dict)
     bus_data = pm_data["bus"]
     from_bus_no = branch_data["f_bus"]
     to_bus_no = branch_data["t_bus"]
+    if !haskey(bus_data, from_bus_no) || !haskey(bus_data, to_bus_no)
+        @warn "Branch between buses $(from_bus_no) and $(to_bus_no) references a bus not present in the BUS data. Skipping isolated-bus check."
+        return
+    end
     from_bus = bus_data[from_bus_no]
     to_bus = bus_data[to_bus_no]
 
@@ -421,7 +426,7 @@ function _psse2pm_generator!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     "NREG" => pop!(gen, "NREG"),
                     "BASLOD" => pop!(gen, "BASLOD"),
                 )
-            elseif pm_data["source_version"] ∈ ("32", "33")
+            elseif pm_data["source_version"] ∈ ("30", "32", "33")
                 sub_data["ext"] = Dict{String, Any}(
                     "IREG" => pop!(gen, "IREG"),
                     "WPF" => pop!(gen, "WPF"),
@@ -557,6 +562,22 @@ function _psse2pm_bus!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["source_id"] = ["bus", "$(bus["I"])"]
             sub_data["index"] = pop!(bus, "I")
 
+            gl = pop!(bus, "GL", 0.0)
+            bl = pop!(bus, "BL", 0.0)
+            if gl != 0.0 || bl != 0.0
+                if !haskey(pm_data, "shunt")
+                    pm_data["shunt"] = []
+                end
+                shunt_data = Dict{String, Any}()
+                shunt_data["shunt_bus"] = sub_data["bus_i"]
+                shunt_data["gs"] = gl
+                shunt_data["bs"] = bl
+                shunt_data["status"] = sub_data["bus_status"]
+                shunt_data["source_id"] = ["bus", "$(sub_data["bus_i"])"]
+                shunt_data["index"] = length(pm_data["shunt"]) + 1
+                push!(pm_data["shunt"], shunt_data)
+            end
+
             if import_all
                 _import_remaining_keys!(sub_data, bus)
             end
@@ -597,7 +618,7 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["interruptible"] = pop!(load, "INTRPT")
             sub_data["ext"] = Dict{String, Any}()
 
-            if pm_data["source_version"] ∈ ("32", "33")
+            if pm_data["source_version"] ∈ ("30", "32", "33")
                 sub_data["ext"]["LOADTYPE"] = ""
             elseif pm_data["source_version"] == "35"
                 sub_data["ext"]["LOADTYPE"] = pop!(load, "LOADTYPE", "")
@@ -633,7 +654,10 @@ specifications.
 function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     @info "Parsing PSS(R)E Fixed & Switched Shunt data into a PowerModels Dict..."
 
-    pm_data["shunt"] = []
+    # bus records may have already contributed shunt entries
+    if !haskey(pm_data, "shunt")
+        pm_data["shunt"] = []
+    end
     if haskey(pti_data, "FIXED SHUNT")
         for shunt in pti_data["FIXED SHUNT"]
             sub_data = Dict{String, Any}()
@@ -718,7 +742,7 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     sub_data["initial_status"][1:length(sub_data["step_number"])]
 
                 sub_data["ext"]["NREG"] = pop!(switched_shunt, "NREG")
-            elseif pm_data["source_version"] ∈ ("32", "33")
+            elseif pm_data["source_version"] ∈ ("30", "32", "33")
                 sub_data["ext"]["SWREM"] = switched_shunt["SWREM"]
                 sub_data["initial_status"] = ones(Int, length(sub_data["y_increment"]))
             else
@@ -977,7 +1001,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     "MAG2" => transformer["MAG2"],
                 )
 
-                if pm_data["source_version"] ∈ ("32", "33")
+                if pm_data["source_version"] ∈ ("30", "32", "33")
                     sub_data["rate_a"] = pop!(transformer, "RATA1")
                     sub_data["rate_b"] = pop!(transformer, "RATB1")
                     sub_data["rate_c"] = pop!(transformer, "RATC1")
@@ -1350,7 +1374,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["r_tertiary"] = Zr_t
                 sub_data["x_tertiary"] = Zx_t
 
-                if pm_data["source_version"] ∈ ("32", "33")
+                if pm_data["source_version"] ∈ ("30", "32", "33")
                     sub_data["rating_primary"] =
                         min(
                             transformer["RATA1"],
@@ -1519,7 +1543,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 for prefix in TRANSFORMER3W_PARAMETER_NAMES
                     for i in 1:length(WINDING_NAMES)
                         key = "$prefix$i"
-                        if pm_data["source_version"] ∈ ("32", "33")
+                        if pm_data["source_version"] ∈ ("30", "32", "33")
                             sub_data["ext"][key] = transformer[key]
                         else
                             continue
@@ -1592,9 +1616,18 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
             sub_data["transfer_setpoint"] = dcline["SETVL"]
 
-            sub_data["name"] = strip(dcline["NAME"], ['"', '\''])
+            sub_data["name"] = if pm_data["source_version"] == "30"
+                string(dcline["I"])
+            else
+                strip(dcline["NAME"], ['"', '\''])
+            end
             sub_data["f_bus"] = dcline["IPR"]
             sub_data["t_bus"] = dcline["IPI"]
+            if !haskey(pm_data["bus"], sub_data["f_bus"]) ||
+               !haskey(pm_data["bus"], sub_data["t_bus"])
+                @warn "Two-terminal DC line between buses $(sub_data["f_bus"]) and $(sub_data["t_bus"]) references a bus not present in the BUS data. Skipping."
+                continue
+            end
             if pm_data["has_isolated_type_buses"]
                 push!(pm_data["connected_buses"], sub_data["f_bus"])
                 push!(pm_data["connected_buses"], sub_data["t_bus"])
@@ -1704,7 +1737,11 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["inverter_capacitor_reactance"] = dcline["XCAPI"] / ZbaseI
             sub_data["r"] = dcline["RDC"] / ZbaseR
 
-            if pm_data["source_version"] ∈ ("32", "33")
+            if pm_data["source_version"] == "30"
+                sub_data["ext"] = Dict{String, Any}(
+                    "psse_name" => dcline["I"],
+                )
+            elseif pm_data["source_version"] ∈ ("32", "33")
                 sub_data["ext"] = Dict{String, Any}(
                     "psse_name" => dcline["NAME"],
                 )
@@ -1721,7 +1758,11 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 "two-terminal dc",
                 sub_data["f_bus"],
                 sub_data["t_bus"],
-                pop!(dcline, "NAME"),
+                if pm_data["source_version"] == "30"
+                    pop!(dcline, "I")
+                else
+                    pop!(dcline, "NAME")
+                end,
             ]
             sub_data["index"] = length(pm_data["dcline"]) + 1
 
@@ -1874,7 +1915,11 @@ function _psse2pm_facts!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             )
             sub_data = Dict{String, Any}()
 
-            sub_data["name"] = strip(facts["NAME"], ['"', '\''])
+            sub_data["name"] = if pm_data["source_version"] == "30"
+                string(facts["N"])
+            else
+                strip(facts["NAME"], ['"', '\''])
+            end
             sub_data["control_mode"] = facts["MODE"]
 
             sub_data["bus"] = facts["I"]  # Sending end bus number
@@ -1901,7 +1946,7 @@ function _psse2pm_facts!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             if pm_data["source_version"] == "35"
                 sub_data["ext"]["NREG"] = facts["NREG"]
                 sub_data["ext"]["MNAME"] = facts["MNAME"]
-            elseif pm_data["source_version"] ∈ ("32", "33")
+            elseif pm_data["source_version"] ∈ ("30", "32", "33")
                 sub_data["ext"] = Dict{String, Any}(
                     "J" => facts["J"],
                 )
@@ -1980,6 +2025,7 @@ function _psse2pm_switch_breaker!(pm_data::Dict, pti_data::Dict, import_all::Boo
     @info "Parsing PSS(R)E Switches & Breakers data into a PowerModels Dict..."
     pm_data["breaker"] = []
     pm_data["switch"] = []
+    pm_data["other"] = []
     mapping = Dict('@' => ("breaker", 1), '*' => ("switch", 0))
     mapping_v35 = Dict(2 => "breaker", 3 => "switch")
 
@@ -2025,7 +2071,7 @@ function _psse2pm_switch_breaker!(pm_data::Dict, pti_data::Dict, import_all::Boo
                 )
 
                 if import_all
-                    _import_remaining_keys!(sub_data, branch)
+                    _import_remaining_keys!(sub_data, switching_device)
                 end
 
                 branch_isolated_bus_modifications!(pm_data, sub_data)
