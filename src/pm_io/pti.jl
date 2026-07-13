@@ -964,22 +964,6 @@ const _substation_switching_device_dtypes_v35 = [
 ]
 
 const _substation_terminal_two_bus_types = ("B", "2")
-const _substation_terminal_three_bus_types = ("3",)
-
-const _substation_node_defaults_v35 =
-    ["STATUS" => 1, "VM" => 1.0, "VA" => 0.0]
-
-const _substation_switching_device_defaults_v35 = [
-    "CKT" => "1",
-    "NAME" => "",
-    "TYPE" => 1,
-    "STATUS" => 1,
-    "NSTAT" => 1,
-    "X" => 0.0001,
-    "RATE1" => 0.0,
-    "RATE2" => 0.0,
-    "RATE3" => 0.0,
-]
 
 """
 lookup array of data types for PTI file sections given by
@@ -1605,8 +1589,19 @@ const _default_substation_data_v35 = Dict(
     "LATITUDE" => 0.0,
     "LONGITUDE" => 0.0,
     "SGR" => 0.1,
-    "NODES" => Dict(),
-    "SWITCHING DEVICES" => Dict(),
+    "NODES" => Dict("NAME" => "", "STATUS" => 1, "VM" => 1.0, "VA" => 0.0),
+    "SWITCHING DEVICES" => Dict(
+        "CKT" => "1",
+        "NAME" => "",
+        "TYPE" => 1,
+        "STATUS" => 1,
+        "NSTAT" => 1,
+        "X" => 0.0001,
+        "RATE1" => 0.0,
+        "RATE2" => 0.0,
+        "RATE3" => 0.0,
+    ),
+    # terminals are fully populated positionally in _parse_substation_terminal
     "TERMINALS" => Dict(),
 )
 
@@ -1991,20 +1986,10 @@ function _get_line_elements(line::AbstractString)
     return (elements, comment)
 end
 
-function _substation_first_element(elements::Vector{String})
-    return strip(strip(elements[1]), ['\'', '"'])
-end
+const _substation_quote_chars = ('\'', '"')
 
-function _apply_record_defaults!(
-    record::Dict{String, Any},
-    defaults::Vector{<:Pair{String, <:Any}},
-)
-    for (field, default) in defaults
-        if !haskey(record, field) || record[field] == ""
-            record[field] = default
-        end
-    end
-    return record
+function _unquote(element::AbstractString)
+    return String(strip(strip(element, _substation_quote_chars)))
 end
 
 function _parse_substation_terminal(elements::Vector{String}, line_index::Int)
@@ -2016,9 +2001,9 @@ function _parse_substation_terminal(elements::Vector{String}, line_index::Int)
     terminal = Dict{String, Any}()
     terminal["I"] = parse(Int64, strip(elements[1]))
     terminal["NI"] = parse(Int64, strip(elements[2]))
-    type_code = strip(strip(elements[3], ['\'', '"']))
-    terminal["TYP"] = String(type_code)
-    if type_code in _substation_terminal_three_bus_types
+    type_code = _unquote(elements[3])
+    terminal["TYP"] = type_code
+    if type_code == "3"
         length(elements) < 6 && throw(
             DataFormatError(
                 "Three-winding substation terminal record at line $line_index has $(length(elements)) fields, expected 6",
@@ -2026,7 +2011,7 @@ function _parse_substation_terminal(elements::Vector{String}, line_index::Int)
         )
         terminal["J"] = parse(Int64, strip(elements[4]))
         terminal["K"] = parse(Int64, strip(elements[5]))
-        terminal["ID"] = String(strip(strip(elements[6], ['\'', '"'])))
+        terminal["ID"] = _unquote(elements[6])
     elseif type_code in _substation_terminal_two_bus_types
         length(elements) < 5 && throw(
             DataFormatError(
@@ -2035,11 +2020,11 @@ function _parse_substation_terminal(elements::Vector{String}, line_index::Int)
         )
         terminal["J"] = parse(Int64, strip(elements[4]))
         terminal["K"] = 0
-        terminal["ID"] = String(strip(strip(elements[5], ['\'', '"'])))
+        terminal["ID"] = _unquote(elements[5])
     else
         terminal["J"] = 0
         terminal["K"] = 0
-        terminal["ID"] = String(strip(strip(elements[4], ['\'', '"'])))
+        terminal["ID"] = _unquote(elements[4])
     end
     return terminal
 end
@@ -2070,7 +2055,7 @@ function _parse_substation_section!(
             continue
         end
         (elements, _) = _get_line_elements(line)
-        first_element = _substation_first_element(elements)
+        first_element = _unquote(elements[1])
         if first_element == "Q"
             return line_index
         end
@@ -2090,7 +2075,6 @@ function _parse_substation_section!(
         if state == :substation_record
             current = Dict{String, Any}()
             _parse_line_element!(current, elements, "SUBSTATION DATA", dtypes)
-            _apply_record_defaults!(current, ["NAME" => ""])
             current["NAME"] = String(strip(current["NAME"]))
             current["NODES"] = Dict{String, Any}[]
             current["SWITCHING DEVICES"] = Dict{String, Any}[]
@@ -2100,7 +2084,6 @@ function _parse_substation_section!(
         elseif state == :nodes
             node = Dict{String, Any}()
             _parse_line_element!(node, elements, "SUBSTATION NODE", dtypes)
-            _apply_record_defaults!(node, _substation_node_defaults_v35)
             node["NAME"] = String(strip(node["NAME"]))
             push!(current["NODES"], node)
         elseif state == :switching_devices
@@ -2111,7 +2094,6 @@ function _parse_substation_section!(
                 "SUBSTATION SWITCHING DEVICE",
                 dtypes,
             )
-            _apply_record_defaults!(device, _substation_switching_device_defaults_v35)
             device["CKT"] = String(strip(device["CKT"]))
             device["NAME"] = String(strip(device["NAME"]))
             push!(current["SWITCHING DEVICES"], device)
@@ -2228,7 +2210,7 @@ function _parse_pti_data(data_io::IO)
         (elements, comment) = _get_line_elements(line)
 
         # a section terminator may be written as a bare or quoted zero (or Q)
-        first_element = strip(strip(elements[1]), ['\'', '"'])
+        first_element = _unquote(elements[1])
 
         if is_v35 && (line_index == 3 || line_index == 4) &&
            section_v35 == "CASE IDENTIFICATION"
