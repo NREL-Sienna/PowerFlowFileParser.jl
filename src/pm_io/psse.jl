@@ -1149,7 +1149,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 base_names = [
                     "base_power_12",
                     "base_power_23",
-                    "base_power_13",
+                    "base_power_31",
                 ]
 
                 for (ix, base) in enumerate(bases)
@@ -1188,10 +1188,10 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
                 mva_ratio_12 = sub_data["base_power_12"] / pm_data["baseMVA"]
                 mva_ratio_23 = sub_data["base_power_23"] / pm_data["baseMVA"]
-                mva_ratio_31 = sub_data["base_power_13"] / pm_data["baseMVA"]
+                mva_ratio_31 = sub_data["base_power_31"] / pm_data["baseMVA"]
                 Z_base_device_1 = transformer["NOMV1"]^2 / sub_data["base_power_12"]
                 Z_base_device_2 = transformer["NOMV2"]^2 / sub_data["base_power_23"]
-                Z_base_device_3 = transformer["NOMV3"]^2 / sub_data["base_power_13"]
+                Z_base_device_3 = transformer["NOMV3"]^2 / sub_data["base_power_31"]
                 Z_base_sys_1 = (sub_data["base_voltage_primary"])^2 / pm_data["baseMVA"]
                 Z_base_sys_2 =
                     (sub_data["base_voltage_secondary"])^2 / pm_data["baseMVA"]
@@ -1208,7 +1208,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     # In device base
                     br_r12 *= 1e-6 / sub_data["base_power_12"]
                     br_r23 *= 1e-6 / sub_data["base_power_23"]
-                    br_r31 *= 1e-6 / sub_data["base_power_13"]
+                    br_r31 *= 1e-6 / sub_data["base_power_31"]
 
                     br_x12 = sqrt(br_x12^2 - br_r12^2)
                     br_x23 = sqrt(br_x23^2 - br_r23^2)
@@ -1240,6 +1240,76 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 # CZ == 2: "for resistance and reactance in pu on winding base"; the
                 # impedance is already expressed on the winding-pair base, so no
                 # conversion is applied (passthrough is correct per the PSS/E convention).
+
+                # Compute primary,secondary, tertiary impedances in system base, then convert to base power of appropriate winding
+                if iszero(Z_base_device_1)
+                    br_r12_sysbase = br_r12 / mva_ratio_12
+                    br_x12_sysbase = br_x12 / mva_ratio_12
+                else
+                    br_r12_sysbase = br_r12 * (Z_base_device_1 / Z_base_sys_1)
+                    br_x12_sysbase = br_x12 * (Z_base_device_1 / Z_base_sys_1)
+                end
+                if iszero(Z_base_device_2)
+                    br_r23_sysbase = br_r23 / mva_ratio_23
+                    br_x23_sysbase = br_x23 / mva_ratio_23
+                else
+                    br_r23_sysbase = br_r23 * (Z_base_device_2 / Z_base_sys_2)
+                    br_x23_sysbase = br_x23 * (Z_base_device_2 / Z_base_sys_2)
+                end
+                if iszero(Z_base_device_3)
+                    br_r31_sysbase = br_r31 / mva_ratio_31
+                    br_x31_sysbase = br_x31 / mva_ratio_31
+                else
+                    br_r31_sysbase = br_r31 * (Z_base_device_3 / Z_base_sys_3)
+                    br_x31_sysbase = br_x31 * (Z_base_device_3 / Z_base_sys_3)
+                end
+                # See "Power System Stability and Control", ISBN: 0-07-035958-X, Eq. 6.72
+                Zr_p = 1 / 2 * (br_r12_sysbase - br_r23_sysbase + br_r31_sysbase)
+                Zr_s = 1 / 2 * (br_r23_sysbase - br_r31_sysbase + br_r12_sysbase)
+                Zr_t = 1 / 2 * (br_r31_sysbase - br_r12_sysbase + br_r23_sysbase)
+                Zx_p = 1 / 2 * (br_x12_sysbase - br_x23_sysbase + br_x31_sysbase)
+                Zx_s = 1 / 2 * (br_x23_sysbase - br_x31_sysbase + br_x12_sysbase)
+                Zx_t = 1 / 2 * (br_x31_sysbase - br_x12_sysbase + br_x23_sysbase)
+
+                # See PSSE Manual (Section 1.15.1 "Three-Winding Transformer Notes" of Data Formats file)
+                zero_names = []
+                if isapprox(Zx_p, 0.0; atol = eps(Float32))
+                    push!(zero_names, "primary")
+                    Zx_p = ZERO_IMPEDANCE_REACTANCE_THRESHOLD
+                end
+                if isapprox(Zx_s, 0.0; atol = eps(Float32))
+                    push!(zero_names, "secondary")
+                    Zx_s = ZERO_IMPEDANCE_REACTANCE_THRESHOLD
+                end
+                if isapprox(Zx_t, 0.0; atol = eps(Float32))
+                    push!(zero_names, "tertiary")
+                    Zx_t = ZERO_IMPEDANCE_REACTANCE_THRESHOLD
+                end
+                if !isempty(zero_names)
+                    @info "Zero impedance reactance detected in 3W Transformer $(transformer["NAME"]) for winding(s): $(join(zero_names, ", ")). Setting to threshold value $(ZERO_IMPEDANCE_REACTANCE_THRESHOLD)."
+                end
+
+                if iszero(Z_base_device_1)
+                    Zr_p *= mva_ratio_12
+                    Zx_p *= mva_ratio_12
+                else
+                    Zr_p *= Z_base_sys_1 / Z_base_device_1
+                    Zx_p *= Z_base_sys_1 / Z_base_device_1
+                end
+                if iszero(Z_base_device_2)
+                    Zr_s *= mva_ratio_23
+                    Zx_s *= mva_ratio_23
+                else
+                    Zr_s *= Z_base_sys_2 / Z_base_device_2
+                    Zx_s *= Z_base_sys_2 / Z_base_device_2
+                end
+                if iszero(Z_base_device_3)
+                    Zr_t *= mva_ratio_31
+                    Zx_t *= mva_ratio_31
+                else
+                    Zr_t *= Z_base_sys_3 / Z_base_device_3
+                    Zx_t *= Z_base_sys_3 / Z_base_device_3
+                end
 
                 sub_data["name"] = transformer["NAME"]
                 sub_data["bus_primary"] = bus_id1
@@ -1281,6 +1351,13 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["reactive_power_flow_secondary"] = 0.0
                 sub_data["active_power_flow_tertiary"] = 0.0
                 sub_data["reactive_power_flow_tertiary"] = 0.0
+
+                sub_data["r_primary"] = Zr_p
+                sub_data["x_primary"] = Zx_p
+                sub_data["r_secondary"] = Zr_s
+                sub_data["x_secondary"] = Zx_s
+                sub_data["r_tertiary"] = Zr_t
+                sub_data["x_tertiary"] = Zx_t
 
                 if pm_data["source_version"] ∈ ("32", "33")
                     sub_data["rating_primary"] =
@@ -1340,8 +1417,8 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["x_12"] = br_x12
                 sub_data["r_23"] = br_r23
                 sub_data["x_23"] = br_x23
-                sub_data["r_13"] = br_r31
-                sub_data["x_13"] = br_x31
+                sub_data["r_31"] = br_r31
+                sub_data["x_31"] = br_x31
                 if transformer["CM"] == 1
                     # Transform admittance to device per unit
                     mva_ratio_12 = sub_data["base_power_12"] / pm_data["baseMVA"]
@@ -2213,7 +2290,7 @@ function _pti_to_powermodels!(
                             "PSEE reference bus $(b_number) that is topologically isolated from the system. Indicates an error in the data.",
                         )
                     end
-                    @error "PSEE data file contains a topologically isolated bus $(b_number) that is disconnected from the system and set to bus_type = $(b_type) instead of 4. Likely indicates an error in the data."
+                    @warn "PSEE data file contains a topologically isolated bus $(b_number) that is disconnected from the system and set to bus_type = $(b_type) instead of 4. Likely indicates an error in the data."
                     pm_data["bus"][b]["bus_type"] = 4
                     pm_data["bus"][b]["bus_status"] = false
                 end

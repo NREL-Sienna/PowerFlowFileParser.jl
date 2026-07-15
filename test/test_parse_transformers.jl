@@ -1,13 +1,19 @@
-# Contract tests for transformer emission (transformer-refactor train step 2).
-# Characterization values below were captured from the pre-refactor parser and
-# must not drift: the star-leg deletion is not allowed to perturb surviving keys.
+# Contract tests for 3W transformer emission.
+# Each 3W record emits BOTH the pairwise impedances (winding-pair base,
+# keys r_12/x_12, r_23/x_23, r_31/x_31, base_power_12/23/31) AND the
+# delta->star equivalent legs (winding base, keys r_primary/x_primary,
+# r_secondary/x_secondary, r_tertiary/x_tertiary). Star legs are computed
+# on the system base, zero reactances are floored to
+# ZERO_IMPEDANCE_REACTANCE_THRESHOLD there, then converted to the winding
+# base. Characterization values below were captured from the reference
+# parser pipeline and must not drift.
 
 const STAR_LEG_KEYS =
     ("r_primary", "x_primary", "r_secondary", "x_secondary", "r_tertiary", "x_tertiary")
 
-const SURVIVING_3W_KEYS = (
-    "r_12", "x_12", "r_23", "x_23", "r_13", "x_13",
-    "base_power_12", "base_power_23", "base_power_13",
+const PAIRWISE_3W_KEYS = (
+    "r_12", "x_12", "r_23", "x_23", "r_31", "x_31",
+    "base_power_12", "base_power_23", "base_power_31",
     "base_voltage_primary", "base_voltage_secondary", "base_voltage_tertiary",
     "primary_turns_ratio", "secondary_turns_ratio", "tertiary_turns_ratio",
     "rating_primary", "rating_secondary", "rating_tertiary",
@@ -15,16 +21,15 @@ const SURVIVING_3W_KEYS = (
     "g", "b", "star_bus", "COD1", "COD2", "COD3", "ext",
 )
 
-@testset "3W transformer emission: pairwise-only contract (mixed case)" begin
+@testset "3W transformer emission: pairwise + star-leg contract (mixed case)" begin
     d = PowerFlowFileParser.parse_file(joinpath(PSSE_RAW_DIR, "case14_with_pst3w.raw"))
     @test haskey(d, "3w_transformer")
     @test length(d["3w_transformer"]) == 2
     for (_, t) in d["3w_transformer"]
         for k in STAR_LEG_KEYS
-            @test !haskey(t, k)   # RED until the deletion lands
+            @test haskey(t, k)
         end
-        # surviving keys present
-        for k in SURVIVING_3W_KEYS
+        for k in PAIRWISE_3W_KEYS
             @test haskey(t, k)
         end
     end
@@ -33,9 +38,17 @@ const SURVIVING_3W_KEYS = (
     @test t["r_12"] ≈ 0.0 atol = 1e-12
     @test t["x_12"] ≈ 0.0002 atol = 1e-12
     @test t["x_23"] ≈ 0.0002 atol = 1e-12
-    @test t["x_13"] ≈ 0.0002 atol = 1e-12
+    @test t["x_31"] ≈ 0.0002 atol = 1e-12
     @test t["base_power_12"] == 100.0
     @test t["g"] ≈ 0.0 atol = 1e-12
+    # star legs: all pairs r=0, x=2e-4 on the system base (SBASE=baseMVA=100),
+    # so each leg is 1/2 * (2e-4 - 2e-4 + 2e-4) = 1e-4
+    for k in ("r_primary", "r_secondary", "r_tertiary")
+        @test t[k] ≈ 0.0 atol = 1e-12
+    end
+    for k in ("x_primary", "x_secondary", "x_tertiary")
+        @test t[k] ≈ 1e-4 atol = 1e-12
+    end
     # star bus exists as a real hidden bus
     star = d["bus"][t["star_bus"]]
     @test star["hidden"] == true
@@ -58,15 +71,15 @@ end
     @test pst["br_x"] ≈ 0.0001 atol = 1e-12
 end
 
-@testset "3W transformer emission: pairwise-only contract (pure 3W case)" begin
+@testset "3W transformer emission: pairwise + star-leg contract (pure 3W case)" begin
     d = PowerFlowFileParser.parse_file(joinpath(PSSE_RAW_DIR, "case6_3w.raw"))
     @test haskey(d, "3w_transformer")
     @test length(d["3w_transformer"]) == 1
     for (_, t) in d["3w_transformer"]
         for k in STAR_LEG_KEYS
-            @test !haskey(t, k)   # RED until the deletion lands
+            @test haskey(t, k)
         end
-        for k in SURVIVING_3W_KEYS
+        for k in PAIRWISE_3W_KEYS
             @test haskey(t, k)
         end
     end
@@ -74,11 +87,48 @@ end
     @test t["r_12"] ≈ 0.0 atol = 1e-12
     @test t["x_12"] ≈ 0.0002 atol = 1e-12
     @test t["x_23"] ≈ 0.0002 atol = 1e-12
-    @test t["x_13"] ≈ 0.0002 atol = 1e-12
+    @test t["x_31"] ≈ 0.0002 atol = 1e-12
     @test t["base_power_12"] == 100.0
     @test t["g"] ≈ 0.0 atol = 1e-12
+    # same impedance pattern as the mixed case: each star leg x = 1e-4, r = 0
+    for k in ("r_primary", "r_secondary", "r_tertiary")
+        @test t[k] ≈ 0.0 atol = 1e-12
+    end
+    for k in ("x_primary", "x_secondary", "x_tertiary")
+        @test t[k] ≈ 1e-4 atol = 1e-12
+    end
     star = d["bus"][t["star_bus"]]
     @test star["hidden"] == true
+end
+
+@testset "3W transformer star legs: zero-impedance flooring (CZ=2)" begin
+    d = PowerFlowFileParser.parse_file(
+        joinpath(PSSE_RAW_DIR, "case4_zero_impedance_3wt.raw"),
+    )
+    @test length(d["3w_transformer"]) == 1
+    t = d["3w_transformer"]["1"]
+    # CZ=2: pairwise values pass through on the winding-pair base (15 MVA)
+    @test t["base_power_12"] == 15.0
+    @test t["base_power_23"] == 15.0
+    @test t["base_power_31"] == 15.0
+    @test t["r_12"] ≈ 5.0e-3 atol = 1e-12
+    @test t["x_12"] ≈ 5.0e-2 atol = 1e-12
+    @test t["r_23"] ≈ 3.0e-3 atol = 1e-12
+    @test t["x_23"] ≈ 3.1e-2 atol = 1e-12
+    @test t["r_31"] ≈ 5.0e-3 atol = 1e-12
+    @test t["x_31"] ≈ 1.9e-2 atol = 1e-12
+    # Star legs, derived on the system base (x pairwise * 100/15), e.g.
+    # x_p = 1/2 * (100/15) * (5.0e-2 - 3.1e-2 + 1.9e-2), then re-converted
+    # to the 15 MVA winding base (* 15/100):
+    @test t["r_primary"] ≈ 3.5e-3 atol = 1e-12
+    @test t["x_primary"] ≈ 1.9e-2 atol = 1e-12
+    @test t["r_secondary"] ≈ 1.5e-3 atol = 1e-12
+    @test t["x_secondary"] ≈ 3.1e-2 atol = 1e-12
+    @test t["r_tertiary"] ≈ 1.5e-3 atol = 1e-12
+    # tertiary x cancels exactly: 1/2 * (1.9e-2 - 5.0e-2 + 3.1e-2) = 0, so it
+    # is floored to 1e-4 on the SYSTEM base and only then converted to the
+    # winding base: 1e-4 * 15/100 = 1.5e-5
+    @test t["x_tertiary"] ≈ 1.5e-5 atol = 1e-12
 end
 
 const CONTROL_KEYS_2W = ("COD1", "CONT1", "RMA1", "RMI1", "VMA1", "VMI1", "NTP1")
