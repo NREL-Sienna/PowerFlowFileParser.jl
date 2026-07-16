@@ -2247,29 +2247,68 @@ function _psse2pm_impedance_correction!(pm_data::Dict, pti_data::Dict, import_al
 end
 
 function _psse2pm_substation_data!(pm_data::Dict, pti_data::Dict, import_all::Bool)
-    @warn "Parsing PSS(R)E Substation data into a PowerModels Dict..."
-    pm_data["substation_data"] = []
+    @info "Parsing PSS(R)E Substation data into a PowerModels Dict..."
+    pm_data["substation"] = []
 
-    if haskey(pti_data, "SUBSTATION DATA")
-        for substation_data in pti_data["SUBSTATION DATA"]
-            sub_data = Dict{String, Any}()
-
-            sub_data["name"] = substation_data["NAME"]
-            sub_data["substation_is"] = substation_data["IS"]
-
-            sub_data["latitude"] = substation_data["LATITUDE"]
-            sub_data["longitude"] = substation_data["LONGITUDE"]
-            sub_data["nodes"] = substation_data["NODES"]
-            sub_data["source_id"] = ["substation", sub_data["substation_is"]]
-
-            if import_all
-                _import_remaining_keys!(sub_data, substation_data)
-            end
-
-            sub_data["index"] = length(pm_data["substation_data"]) + 1
-            push!(pm_data["substation_data"], sub_data)
-        end
+    if !haskey(pti_data, "SUBSTATION DATA")
+        return
     end
+
+    for substation in pti_data["SUBSTATION DATA"]
+        sub_data = Dict{String, Any}()
+        sub_data["number"] = pop!(substation, "IS")
+        sub_data["name"] = pop!(substation, "NAME")
+        sub_data["latitude"] = pop!(substation, "LATITUDE")
+        sub_data["longitude"] = pop!(substation, "LONGITUDE")
+        sub_data["grounding_resistance"] = pop!(substation, "SGR")
+
+        sub_data["nodes"] = [
+            Dict{String, Any}(
+                "number" => node["NI"],
+                "name" => node["NAME"],
+                "bus" => node["I"],
+                "status" => node["STATUS"],
+                "vm" => node["VM"],
+                "va" => node["VA"],
+            ) for node in pop!(substation, "NODES")
+        ]
+
+        sub_data["switching_devices"] = [
+            Dict{String, Any}(
+                "from_node" => device["NI"],
+                "to_node" => device["NJ"],
+                "ckt" => device["CKT"],
+                "name" => device["NAME"],
+                "device_type" => device["TYPE"],
+                "status" => device["STATUS"],
+                "normal_status" => device["NSTAT"],
+                "x" => device["X"],
+                "rates" => [device["RATE1"], device["RATE2"], device["RATE3"]],
+            ) for device in pop!(substation, "SWITCHING DEVICES")
+        ]
+
+        sub_data["terminals"] = [
+            Dict{String, Any}(
+                "bus" => terminal["I"],
+                "node" => terminal["NI"],
+                "type" => terminal["TYP"],
+                "id" => terminal["ID"],
+                "secondary_bus" => terminal["J"],
+                "tertiary_bus" => terminal["K"],
+            ) for terminal in pop!(substation, "TERMINALS")
+        ]
+
+        sub_data["source_id"] = ["substation", sub_data["number"]]
+        sub_data["index"] = length(pm_data["substation"]) + 1
+
+        if import_all
+            _import_remaining_keys!(sub_data, substation)
+        end
+
+        push!(pm_data["substation"], sub_data)
+    end
+
+    return
 end
 
 function _psse2pm_storage!(pm_data::Dict, pti_data::Dict, import_all::Bool)
