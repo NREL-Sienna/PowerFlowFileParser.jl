@@ -2359,7 +2359,7 @@ function _pti_to_powermodels!(
                             "PSEE reference bus $(b_number) that is topologically isolated from the system. Indicates an error in the data.",
                         )
                     end
-                    @error "PSEE data file contains a topologically isolated bus $(b_number) that is disconnected from the system and set to bus_type = $(b_type) instead of 4. Likely indicates an error in the data."
+                    @warn "PSEE data file contains a topologically isolated bus $(b_number) that is disconnected from the system and set to bus_type = $(b_type) instead of 4. Likely indicates an error in the data. Correcting to bus_type = 4 (out of service)."
                     pm_data["bus"][b]["bus_type"] = 4
                     pm_data["bus"][b]["bus_status"] = false
                 end
