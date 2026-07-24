@@ -1104,6 +1104,12 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
                 sub_data["index"] = length(pm_data["branch"]) + 1
                 sub_data["COD1"] = transformer["COD1"]
+                sub_data["CONT1"] = transformer["CONT1"]
+                sub_data["RMA1"] = transformer["RMA1"]
+                sub_data["RMI1"] = transformer["RMI1"]
+                sub_data["VMA1"] = transformer["VMA1"]
+                sub_data["VMI1"] = transformer["VMI1"]
+                sub_data["NTP1"] = transformer["NTP1"]
                 if import_all
                     _import_remaining_keys!(
                         sub_data,
@@ -1167,7 +1173,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 base_names = [
                     "base_power_12",
                     "base_power_23",
-                    "base_power_13",
+                    "base_power_31",
                 ]
 
                 for (ix, base) in enumerate(bases)
@@ -1206,10 +1212,10 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
                 mva_ratio_12 = sub_data["base_power_12"] / pm_data["baseMVA"]
                 mva_ratio_23 = sub_data["base_power_23"] / pm_data["baseMVA"]
-                mva_ratio_31 = sub_data["base_power_13"] / pm_data["baseMVA"]
+                mva_ratio_31 = sub_data["base_power_31"] / pm_data["baseMVA"]
                 Z_base_device_1 = transformer["NOMV1"]^2 / sub_data["base_power_12"]
                 Z_base_device_2 = transformer["NOMV2"]^2 / sub_data["base_power_23"]
-                Z_base_device_3 = transformer["NOMV3"]^2 / sub_data["base_power_13"]
+                Z_base_device_3 = transformer["NOMV3"]^2 / sub_data["base_power_31"]
                 Z_base_sys_1 = (sub_data["base_voltage_primary"])^2 / pm_data["baseMVA"]
                 Z_base_sys_2 =
                     (sub_data["base_voltage_secondary"])^2 / pm_data["baseMVA"]
@@ -1226,7 +1232,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     # In device base
                     br_r12 *= 1e-6 / sub_data["base_power_12"]
                     br_r23 *= 1e-6 / sub_data["base_power_23"]
-                    br_r31 *= 1e-6 / sub_data["base_power_13"]
+                    br_r31 *= 1e-6 / sub_data["base_power_31"]
 
                     br_x12 = sqrt(br_x12^2 - br_r12^2)
                     br_x23 = sqrt(br_x23^2 - br_r23^2)
@@ -1255,6 +1261,9 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                         br_x31 *= Z_base_sys_3 / Z_base_device_3
                     end
                 end
+                # CZ == 2: "for resistance and reactance in pu on winding base"; the
+                # impedance is already expressed on the winding-pair base, so no
+                # conversion is applied (passthrough is correct per the PSS/E convention).
 
                 # Compute primary,secondary, tertiary impedances in system base, then convert to base power of appropriate winding
                 if iszero(Z_base_device_1)
@@ -1432,8 +1441,8 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["x_12"] = br_x12
                 sub_data["r_23"] = br_r23
                 sub_data["x_23"] = br_x23
-                sub_data["r_13"] = br_r31
-                sub_data["x_13"] = br_x31
+                sub_data["r_31"] = br_r31
+                sub_data["x_31"] = br_x31
                 if transformer["CM"] == 1
                     # Transform admittance to device per unit
                     mva_ratio_12 = sub_data["base_power_12"] / pm_data["baseMVA"]
@@ -1528,6 +1537,14 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["COD1"] = transformer["COD1"]
                 sub_data["COD2"] = transformer["COD2"]
                 sub_data["COD3"] = transformer["COD3"]
+                for i in 1:3
+                    sub_data["CONT$i"] = transformer["CONT$i"]
+                    sub_data["RMA$i"] = transformer["RMA$i"]
+                    sub_data["RMI$i"] = transformer["RMI$i"]
+                    sub_data["VMA$i"] = transformer["VMA$i"]
+                    sub_data["VMI$i"] = transformer["VMI$i"]
+                    sub_data["NTP$i"] = transformer["NTP$i"]
+                end
 
                 sub_data["ext"] = Dict{String, Any}(
                     "psse_name" => transformer["NAME"],
