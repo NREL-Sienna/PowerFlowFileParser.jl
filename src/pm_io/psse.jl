@@ -738,8 +738,12 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["step_number"] = [step_numbers[k] for k in step_numbers_sorted]
             sub_data["step_number"] = sub_data["step_number"][sub_data["step_number"] .!= 0]
 
+            sub_data["control_mode"] = switched_shunt["MODSW"]
+            # pti.jl names the regulated-bus column "SWREM" for every source version,
+            # including v35 where the PSS/E spec itself calls it SWREG.
+            sub_data["regulated_bus_number"] = switched_shunt["SWREM"]
+
             sub_data["ext"] = Dict{String, Any}(
-                "MODSW" => switched_shunt["MODSW"],
                 "ADJM" => switched_shunt["ADJM"],
                 "RMPCT" => switched_shunt["RMPCT"],
                 "RMIDNT" => switched_shunt["RMIDNT"],
@@ -770,7 +774,6 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
                 sub_data["ext"]["NREG"] = pop!(switched_shunt, "NREG")
             elseif pm_data["source_version"] ∈ ("30", "32", "33")
-                sub_data["ext"]["SWREM"] = switched_shunt["SWREM"]
                 sub_data["initial_status"] = ones(Int, length(sub_data["y_increment"]))
             else
                 error("Unsupported PSS(R)E source version: $(pm_data["source_version"])")
