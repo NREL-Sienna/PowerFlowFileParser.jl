@@ -2013,13 +2013,15 @@ function _psse2pm_facts!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 @warn "% MVAr required must me positive."
             end
 
-            sub_data["reactive_power_required"] = facts["RMPCT"]
             sub_data["ext"] = Dict{String, Any}()
 
             if pm_data["source_version"] == "35"
+                sub_data["regulated_bus_number"] = facts["FCREG"]
                 sub_data["ext"]["NREG"] = facts["NREG"]
                 sub_data["ext"]["MNAME"] = facts["MNAME"]
             elseif pm_data["source_version"] ∈ ("30", "32", "33")
+                # REMOT is absent from the v30 FACTS record layout (_FACTS_dtypes_v30)
+                sub_data["regulated_bus_number"] = get(facts, "REMOT", 0)
                 sub_data["ext"] = Dict{String, Any}(
                     "J" => facts["J"],
                 )
