@@ -738,8 +738,12 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["step_number"] = [step_numbers[k] for k in step_numbers_sorted]
             sub_data["step_number"] = sub_data["step_number"][sub_data["step_number"] .!= 0]
 
+            sub_data["control_mode"] = switched_shunt["MODSW"]
+            # pti.jl names the regulated-bus column "SWREM" for every source version,
+            # including v35 where the PSS/E spec itself calls it SWREG.
+            sub_data["regulated_bus_number"] = switched_shunt["SWREM"]
+
             sub_data["ext"] = Dict{String, Any}(
-                "MODSW" => switched_shunt["MODSW"],
                 "ADJM" => switched_shunt["ADJM"],
                 "RMPCT" => switched_shunt["RMPCT"],
                 "RMIDNT" => switched_shunt["RMIDNT"],
@@ -770,7 +774,6 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
                 sub_data["ext"]["NREG"] = pop!(switched_shunt, "NREG")
             elseif pm_data["source_version"] ∈ ("30", "32", "33")
-                sub_data["ext"]["SWREM"] = switched_shunt["SWREM"]
                 sub_data["initial_status"] = ones(Int, length(sub_data["y_increment"]))
             else
                 error("Unsupported PSS(R)E source version: $(pm_data["source_version"])")
@@ -1858,8 +1861,38 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["ac_voltage_control_from"] = from_bus["MODE"] == 1 ? true : false
             sub_data["ac_voltage_control_to"] = to_bus["MODE"] == 1 ? true : false
 
-            sub_data["dc_setpoint_from"] = from_bus["DCSET"]
-            sub_data["dc_setpoint_to"] = to_bus["DCSET"]
+            if sub_data["dc_voltage_control_from"] && !sub_data["dc_voltage_control_to"]
+                base_voltage = from_bus["DCSET"]
+                flow_setpoint = to_bus["DCSET"]
+            elseif !sub_data["dc_voltage_control_from"] && sub_data["dc_voltage_control_to"]
+                base_voltage = to_bus["DCSET"]
+                flow_setpoint = -from_bus["DCSET"]
+            elseif !sub_data["dc_voltage_control_from"] &&
+                   !sub_data["dc_voltage_control_to"]
+                error(
+                    "At least one converter in converter $(sub_data["name"]) must set a voltage control.",
+                )
+            else
+                error(
+                    "Exactly one converter in converter $(sub_data["name"]) must control DC voltage (TYPE = 1).",
+                )
+            end
+
+            # PSY documents dc_setpoint_from/to as p.u. of rated_dc_voltage for the
+            # DC-voltage-controlling side (TYPE = 1), and p.u. of baseMVA otherwise.
+            sub_data["rated_dc_voltage"] = base_voltage
+            sub_data["dc_setpoint_from"] =
+                if from_bus["TYPE"] == 1
+                    from_bus["DCSET"] / base_voltage
+                else
+                    from_bus["DCSET"] / baseMVA
+                end
+            sub_data["dc_setpoint_to"] =
+                if to_bus["TYPE"] == 1
+                    to_bus["DCSET"] / base_voltage
+                else
+                    to_bus["DCSET"] / baseMVA
+                end
             sub_data["ac_setpoint_from"] = from_bus["ACSET"]
             sub_data["ac_setpoint_to"] = to_bus["ACSET"]
 
@@ -1903,17 +1936,6 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["pminf"] = -sub_data["pmaxf"]
             sub_data["pmint"] = -sub_data["pmaxt"]
 
-            if sub_data["dc_voltage_control_from"] && !sub_data["dc_voltage_control_to"]
-                base_voltage = sub_data["dc_setpoint_from"]
-                flow_setpoint = sub_data["dc_setpoint_to"]
-            elseif !sub_data["dc_voltage_control_from"] && sub_data["dc_voltage_control_to"]
-                base_voltage = sub_data["dc_setpoint_to"]
-                flow_setpoint = -sub_data["dc_setpoint_from"]
-            else
-                error(
-                    "At least one converter in converter $(sub_data["name"]) must set a voltage control.",
-                )
-            end
             Zbase = base_voltage^2 / baseMVA
             sub_data["r"] = dcline["RDC"] / Zbase
             sub_data["pf"] = flow_setpoint / baseMVA
@@ -1991,15 +2013,19 @@ function _psse2pm_facts!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 @warn "% MVAr required must me positive."
             end
 
-            sub_data["reactive_power_required"] = facts["RMPCT"]
             sub_data["ext"] = Dict{String, Any}()
 
             if pm_data["source_version"] == "35"
+                sub_data["regulated_bus_number"] = facts["FCREG"]
                 sub_data["ext"]["NREG"] = facts["NREG"]
                 sub_data["ext"]["MNAME"] = facts["MNAME"]
+                sub_data["ext"]["RMPCT"] = facts["RMPCT"]
             elseif pm_data["source_version"] ∈ ("30", "32", "33")
+                # REMOT is absent from the v30 FACTS record layout (_FACTS_dtypes_v30)
+                sub_data["regulated_bus_number"] = get(facts, "REMOT", 0)
                 sub_data["ext"] = Dict{String, Any}(
                     "J" => facts["J"],
+                    "RMPCT" => facts["RMPCT"],
                 )
             else
                 error("Unsupported PSS(R)E source version: $(pm_data["source_version"])")

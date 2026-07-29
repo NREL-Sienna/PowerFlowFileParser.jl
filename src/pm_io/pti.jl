@@ -1523,15 +1523,6 @@ const _default_switched_shunt = Dict(
     "S8" => 1, "N8" => 0, "B8" => 0.0,
 )
 
-const _default_switched_shunt_v35 = merge(
-    Dict(k => v for (k, v) in pairs(_default_switched_shunt) if k != "SWREM"),
-    Dict(
-        "SWREG" => 0,
-        "ID" => "1",
-        "NAME" => "",
-    ),
-)
-
 const _default_gne_device = Dict(
     "NTERM" => 1,
     "NREAL" => 0,
