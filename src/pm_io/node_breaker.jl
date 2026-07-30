@@ -1,10 +1,11 @@
 # Node-breaker substation materialization. Expands the parsed `substation` section
 # into real bus records ("node-buses"), reroutes devices to their terminal
 # node-buses, and appends each substation switching device to the `breaker`,
-# `switch`, or `other` section per its PSS(R)E device type. Devices attached to an
-# out-of-service NODE are dropped; an out-of-service DEVICE is kept with state 0.
-# Runs inside the PTI conversion, before per-unit and validation, so voltages here
-# are in raw-file units (angles in degrees).
+# `switch`, or `other` section per its PSS(R)E device type. An out-of-service NODE
+# materializes as an out-of-service (type 4) bus, so the devices attached to it are
+# kept and de-energized instead of dropped; an out-of-service DEVICE is kept with
+# state 0. Runs inside the PTI conversion, before per-unit and validation, so
+# voltages here are in raw-file units (angles in degrees).
 
 # Representative node for a PSS(R)E bus I within a substation: prefer a node that
 # inherits or matches the BUS-record voltage (lowest NI first); if every node
@@ -12,6 +13,7 @@
 # bus number I so by-number references stay valid. When it inherits, the retained
 # record keeps the BUS-record solved voltage; when every node stores a differing
 # voltage, the fallback node's stored voltage overwrites the BUS-record voltage.
+# The caller narrows `nodes` to the in-service nodes whenever the bus has any.
 function _representative_node(nodes::Vector, src::Dict)
     inherits_bus_voltage(n) =
         !haskey(n, "vm") ||
@@ -28,13 +30,14 @@ function _prepare_node_breaker!(pm_data::Dict)
     node_number = Dict{Tuple{Int, Int}, Int}()
     terminal_node = Dict{Tuple{Int, String, Int, String}, Int}()
     nb_bus_numbers = Set{Int}()
+    oos_bus_numbers = Set{Int}()
     switches = NamedTuple{
         (:from, :to, :closed, :x, :dtype, :ckt, :name, :rates, :substation),
         Tuple{Int, Int, Bool, Float64, Int, String, String, Vector{Float64}, Int},
     }[]
     subs = get(pm_data, "substation", [])
     if get(pm_data, "source_type", "") != "pti" || isempty(subs)
-        return (; node_number, terminal_node, nb_bus_numbers, switches)
+        return (; node_number, terminal_node, nb_bus_numbers, oos_bus_numbers, switches)
     end
 
     busrec = pm_data["bus"]
@@ -44,10 +47,11 @@ function _prepare_node_breaker!(pm_data::Dict)
         idx = get(sub, "index", 0)
         # local NI -> assigned bus number for this substation
         ni_to_no = Dict{Int, Int}()
-        # group in-service nodes by PSS(R)E bus I
+        # Group every node by PSS(R)E bus I, in service or not: an out-of-service node
+        # still materializes as a bus so the devices wired to it survive and can be
+        # de-energized rather than silently disappearing.
         by_bus = Dict{Int, Vector{Dict}}()
         for n in get(sub, "nodes", [])
-            get(n, "status", 1) == 1 || continue
             push!(get!(by_bus, n["bus"], Vector{Dict}()), n)
         end
         # Sorted so injected bus numbers are reproducible across runs.
@@ -56,7 +60,12 @@ function _prepare_node_breaker!(pm_data::Dict)
             haskey(busrec, I) || continue
             push!(nb_bus_numbers, I)
             src = busrec[I]
-            rep = _representative_node(nodes, src)
+            # An in-service node is preferred as the representative so bus number I
+            # keeps its declared type and status. When every node on the bus is out of
+            # service the BUS record's IDE still governs: the retained record is left
+            # exactly as the file declared it rather than being reconciled here.
+            in_service = filter(n -> get(n, "status", 1) == 1, nodes)
+            rep = _representative_node(isempty(in_service) ? nodes : in_service, src)
             for n in nodes
                 if n === rep
                     num = I
@@ -75,15 +84,27 @@ function _prepare_node_breaker!(pm_data::Dict)
                     else
                         String(node_name)
                     end
-                    # Out-of-service (IDE=4) buses stay out-of-service on every
-                    # node-bus split off of them; everything else starts PQ and
-                    # is promoted back to PV/REF only if a generator lands on it
-                    # (see `_reroute_gens_and_migrate_bus_type!`).
-                    rec["bus_type"] = src["bus_type"] == 4 ? 4 : 1
-                    busrec[num] = rec
-                    if track_connectivity && I in pm_data["connected_buses"]
-                        push!(pm_data["connected_buses"], num)
+                    if get(n, "status", 1) == 1
+                        # Out-of-service (IDE=4) buses stay out-of-service on every
+                        # node-bus split off of them; everything else starts PQ and
+                        # is promoted back to PV/REF only if a generator lands on it
+                        # (see `_reroute_gens_and_migrate_bus_type!`).
+                        rec["bus_type"] = src["bus_type"] == 4 ? 4 : 1
+                        if track_connectivity && I in pm_data["connected_buses"]
+                            push!(pm_data["connected_buses"], num)
+                        end
+                    else
+                        # An out-of-service node gets the same encoding as a BUS record
+                        # with IDE=4, and is tracked so it can be kept out of
+                        # `connected_buses` (see `_keep_oos_node_buses_isolated!`).
+                        rec["bus_type"] = 4
+                        rec["bus_status"] = false
+                        push!(oos_bus_numbers, num)
+                        # `branch_isolated_bus_modifications!` records every type-4
+                        # endpoint here, and only IDE=4 BUS records create the set.
+                        get!(pm_data, "candidate_isolated_to_pq_buses", Set{Int}())
                     end
+                    busrec[num] = rec
                 end
                 haskey(n, "vm") && (busrec[num]["vm"] = n["vm"])
                 haskey(n, "va") && (busrec[num]["va"] = n["va"])
@@ -123,7 +144,7 @@ function _prepare_node_breaker!(pm_data::Dict)
             )
         end
     end
-    return (; node_number, terminal_node, nb_bus_numbers, switches)
+    return (; node_number, terminal_node, nb_bus_numbers, oos_bus_numbers, switches)
 end
 
 _nb_ckt(d) = (
@@ -232,9 +253,71 @@ function _reroute_gens_and_migrate_bus_type!(pm_data::Dict, nb)
         bus_type = src_bus["bus_type"]
         bus_type in (2, 3) || continue
         src in gen_buses && continue
+        # An out-of-service node-bus never takes over voltage control: it would end up
+        # typed PV/REF while carrying `bus_status = false`, and the generator that
+        # landed on it is de-energized anyway. The source bus is still demoted, since
+        # it no longer hosts a generator, and no migration is recorded because none
+        # happened.
+        if pm_data["bus"][target]["bus_type"] == 4
+            src_bus["bus_type"] = 1
+            continue
+        end
         pm_data["bus"][target]["bus_type"] = bus_type
         src_bus["bus_type"] = 1
         get!(src_bus, "ext", Dict{String, Any}())["nb_bus_type_moved_to"] = target
+    end
+    return nothing
+end
+
+# Identifier for a de-energization warning: the PSS(R)E `source_id` when present,
+# otherwise the section index.
+_nb_device_label(d) =
+    string(get(d, "source_id", get(d, "index", "?")))
+
+# Pass 3: de-energize every device that Pass 2 rerouted onto an out-of-service
+# node-bus. `branch_isolated_bus_modifications!` and
+# `transformer3W_isolated_bus_modifications!` run while their own sections are parsed,
+# which is before materialization, so they only ever see the pre-split topology; a
+# device reaches its out-of-service node-bus for the first time in Pass 2 and would
+# otherwise stay in service on a dead bus. Branch-like sections are handed to those
+# same helpers so the warning text and the `candidate_isolated_to_pq_buses`
+# bookkeeping match what a system-level device on an isolated bus produces.
+function _deenergize_devices_on_oos_node_buses!(pm_data::Dict, nb)
+    oos = nb.oos_bus_numbers
+    isempty(oos) && return nothing
+    for section in ("branch", "switch", "breaker", "other")
+        haskey(pm_data, section) || continue
+        for d in values(pm_data[section])
+            (d["f_bus"] in oos || d["t_bus"] in oos) || continue
+            branch_isolated_bus_modifications!(pm_data, d)
+        end
+    end
+    if haskey(pm_data, "3w_transformer")
+        for d in values(pm_data["3w_transformer"])
+            any(
+                b -> b in oos,
+                (d["bus_primary"], d["bus_secondary"], d["bus_tertiary"]),
+            ) || continue
+            transformer3W_isolated_bus_modifications!(pm_data, d)
+        end
+    end
+    for (section, field, status_key) in (
+        ("load", "load_bus", "status"),
+        ("shunt", "shunt_bus", "status"),
+        ("switched_shunt", "shunt_bus", "status"),
+        ("distributed_generation", "bus", "status"),
+        ("gen", "gen_bus", "gen_status"),
+    )
+        haskey(pm_data, section) || continue
+        for d in values(pm_data[section])
+            d[field] in oos || continue
+            haskey(d, status_key) || continue
+            d[status_key] == 1 || continue
+            @warn "$section $(_nb_device_label(d)) is connected to isolated bus $(d[field]). Setting $section status to 0."
+            # Sections store this field as either a Bool or an Int; keep the type.
+            d[status_key] = d[status_key] isa Bool ? false : 0
+            push!(pm_data["candidate_isolated_to_pq_buses"], d[field])
+        end
     end
     return nothing
 end
@@ -280,10 +363,27 @@ function _create_node_breaker_switch_entries!(pm_data::Dict, nb)
     return nothing
 end
 
+# An out-of-service node-bus must never count as topologically connected. Building a
+# switching-device entry registers both of its endpoints in `connected_buses`, which
+# would leave such a node-bus looking connected to the end-of-pipeline isolated-bus
+# reconciliation: it would then be dropped from `topologically_isolated_buses`,
+# converted back to PQ via `candidate_isolated_to_pq_buses`, and end up as an
+# in-service-typed bus carrying `bus_status = false`. Dropping these numbers keeps
+# them in `topologically_isolated_buses`, where the reconciliation leaves any type-4
+# bus alone. Only runs when a BUS record declared IDE=4, since `connected_buses`
+# exists only then (and the reconciliation only runs then).
+function _keep_oos_node_buses_isolated!(pm_data::Dict, nb)
+    isempty(nb.oos_bus_numbers) && return nothing
+    get(pm_data, "has_isolated_type_buses", false) || return nothing
+    setdiff!(pm_data["connected_buses"], nb.oos_bus_numbers)
+    return nothing
+end
+
 """
 Materializes node-breaker substation data into `pm_data`: splits each PSS(R)E bus
 with substation nodes into node-buses (Pass 1), reroutes devices to their terminal
-node-buses (Pass 2), and appends the substation switching devices to the `breaker`,
+node-buses (Pass 2), de-energizes every device that landed on an out-of-service
+node-bus (Pass 3), and appends the substation switching devices to the `breaker`,
 `switch`, or `other` section per their PSS(R)E device type. A no-op unless the dict
 is a PTI case with a populated `substation`
 section. Returns the intermediate node-breaker tables (useful for testing).
@@ -291,6 +391,8 @@ section. Returns the intermediate node-breaker tables (useful for testing).
 function materialize_node_breaker!(pm_data::Dict)
     nb = _prepare_node_breaker!(pm_data)
     _reroute_devices_to_nodes!(pm_data, nb)
+    _deenergize_devices_on_oos_node_buses!(pm_data, nb)
     _create_node_breaker_switch_entries!(pm_data, nb)
+    _keep_oos_node_buses_isolated!(pm_data, nb)
     return nb
 end

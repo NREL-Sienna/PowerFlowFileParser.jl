@@ -155,10 +155,23 @@ end
     @test isempty(bravo["switching_devices"])
     @test isempty(bravo["terminals"])
 
-    @testset "substation switching devices materialize into the breaker table" begin
-        @test length(pm_data["bus"]) == 4   # buses 1-3 plus one injected node-bus
-        # The one device on in-service nodes is a TYPE 2 circuit breaker; the other two
-        # touch out-of-service node 3 and are dropped.
+    @testset "substation switching devices materialize into the switch table" begin
+        # Buses 1-3 from the BUS records, plus the two node-buses split off bus 1:
+        # node 2 (in service) and node 3 (out of service).
+        @test length(pm_data["bus"]) == 5
+        alpha_node(ni) = only([
+            b for b in values(pm_data["bus"])
+            if get(get(b, "ext", Dict{String, Any}()), "nb_substation", nothing) == 1 &&
+               get(b["ext"], "nb_node", nothing) == ni
+        ])
+        oos_bus = alpha_node(3)
+        @test oos_bus["bus_type"] == 4
+        @test oos_bus["bus_status"] == false
+        # The representative node keeps bus 1 exactly as its BUS record declared it.
+        @test alpha_node(1)["bus_i"] == 1
+        @test alpha_node(1)["bus_type"] == 3
+        @test alpha_node(1)["bus_status"] == true
+
         breakers = collect(values(pm_data["breaker"]))
         @test length(breakers) == 1
         cb = only(breakers)
@@ -168,8 +181,24 @@ end
         @test cb["ext"]["NAME"] == "ALPHA\$138\$CB\$0001"
         @test cb["ext"]["nb_substation"] == 1
         @test cb["rating"] == 100.0
-        @test isempty(get(pm_data, "switch", []))
-        @test isempty(get(pm_data, "other", []))
+
+        # The TYPE 3 disconnect is already open in the RAW file.
+        switches = collect(values(pm_data["switch"]))
+        @test length(switches) == 1
+        dsc = only(switches)
+        @test dsc["discrete_branch_type"] == 0
+        @test dsc["state"] == 0
+        @test dsc["ext"]["NAME"] == "ALPHA\$138\$DSC\$0002"
+
+        # The TYPE 1 generic connector is closed in the RAW file but de-energized
+        # because node 3's bus is out of service.
+        others = collect(values(pm_data["other"]))
+        @test length(others) == 1
+        gc = only(others)
+        @test gc["discrete_branch_type"] == 2
+        @test gc["state"] == 0
+        @test gc["ext"]["NAME"] == "ALPHA\$138\$GC\$0003"
+        @test oos_bus["bus_i"] in (gc["f_bus"], gc["t_bus"])
     end
 
     @testset "import_all" begin
@@ -248,6 +277,170 @@ end
     @test nb.terminal_node[(10, "B", 30, "1")] == new_no
     @test length(nb.switches) == 1 && nb.switches[1].closed
     @test nb.switches[1].from == 10 && nb.switches[1].to == new_no
+end
+
+@testset "_prepare_node_breaker! materializes an out-of-service node as an out-of-service bus" begin
+    data = Dict{String, Any}(
+        "source_type" => "pti",
+        "bus" => Dict{Int, Any}(
+            10 => Dict{String, Any}(
+                "bus_i" => 10, "name" => "SUB", "base_kv" => 138.0,
+                "bus_type" => 1, "bus_status" => true,
+                "vm" => 1.02, "va" => 0.0, "area" => 1, "zone" => 1,
+                "vmin" => 0.9, "vmax" => 1.1,
+            ),
+        ),
+        "substation" => [
+            Dict{String, Any}(
+                "index" => 1,
+                "nodes" => [
+                    Dict{String, Any}("number" => 1, "name" => "SUB\$N1",
+                        "bus" => 10,
+                        "status" => 1, "vm" => 1.02, "va" => 0.0),
+                    Dict{String, Any}("number" => 2, "name" => "SUB\$N2",
+                        "bus" => 10,
+                        "status" => 0),
+                ],
+                "switching_devices" => [
+                    Dict{String, Any}("from_node" => 1, "to_node" => 2,
+                        "status" => 1,
+                        "device_type" => 2, "x" => 1e-4, "ckt" => "1",
+                        "name" => "CB1",
+                        "rates" => [0.0, 0.0, 0.0]),
+                ],
+                "terminals" => [
+                    Dict{String, Any}("bus" => 10, "node" => 2, "type" => "L",
+                        "id" => "1"),
+                ],
+            ),
+        ],
+        "load" => [Dict{String, Any}("load_bus" => 10, "source_id" => ["load", 10, "1"])],
+    )
+    nb = PowerFlowFileParser._prepare_node_breaker!(data)
+    new_no = nb.node_number[(1, 2)]
+    @test new_no != 10
+    @test data["bus"][new_no]["bus_type"] == 4
+    @test data["bus"][new_no]["bus_status"] == false
+    # The in-service node is the representative, so bus 10 keeps its declared type.
+    @test nb.node_number[(1, 1)] == 10
+    @test data["bus"][10]["bus_type"] == 1
+    @test data["bus"][10]["bus_status"] == true
+    # The device wired to the out-of-service node is kept, not dropped.
+    @test length(nb.switches) == 1
+    @test nb.switches[1].from == 10 && nb.switches[1].to == new_no
+    PowerFlowFileParser._reroute_devices_to_nodes!(data, nb)
+    @test data["load"][1]["load_bus"] == new_no
+end
+
+"""
+Builds a one-substation case on bus 10 whose node 1 is in service (and so becomes the
+representative) and whose node 2 is out of service, with `terminal` routing a device
+of type `typ`/`id` onto the out-of-service node.
+"""
+function _oos_node_case(; bus_type::Int, typ::String, id::String, secondary_bus = nothing)
+    terminal = Dict{String, Any}("bus" => 10, "node" => 2, "type" => typ, "id" => id)
+    secondary_bus !== nothing && (terminal["secondary_bus"] = secondary_bus)
+    return Dict{String, Any}(
+        "source_type" => "pti",
+        "source_version" => "35",
+        "bus" => Dict{Int, Any}(
+            10 => Dict{String, Any}(
+                "bus_i" => 10, "name" => "SUB", "base_kv" => 138.0,
+                "bus_type" => bus_type, "bus_status" => true,
+                "vm" => 1.02, "va" => 0.0, "area" => 1, "zone" => 1,
+                "vmin" => 0.9, "vmax" => 1.1,
+            ),
+            20 => Dict{String, Any}(
+                "bus_i" => 20, "name" => "FAR", "base_kv" => 138.0,
+                "bus_type" => 1, "bus_status" => true,
+                "vm" => 1.0, "va" => 0.0, "area" => 1, "zone" => 1,
+                "vmin" => 0.9, "vmax" => 1.1,
+            ),
+        ),
+        "substation" => [
+            Dict{String, Any}(
+                "index" => 1,
+                "nodes" => [
+                    Dict{String, Any}("number" => 1, "name" => "SUB\$N1",
+                        "bus" => 10, "status" => 1, "vm" => 1.02, "va" => 0.0),
+                    Dict{String, Any}("number" => 2, "name" => "SUB\$N2",
+                        "bus" => 10, "status" => 0),
+                ],
+                "switching_devices" => Dict{String, Any}[],
+                "terminals" => [terminal],
+            ),
+        ],
+    )
+end
+
+@testset "materialize_node_breaker! de-energizes a branch rerouted onto an out-of-service node" begin
+    data = _oos_node_case(; bus_type = 1, typ = "B", id = "1", secondary_bus = 20)
+    data["branch"] = [
+        Dict{String, Any}("f_bus" => 10, "t_bus" => 20, "br_status" => 1,
+            "source_id" => ["branch", 10, 20, "1"]),
+    ]
+    nb = PowerFlowFileParser.materialize_node_breaker!(data)
+    oos_no = nb.node_number[(1, 2)]
+    @test oos_no in nb.oos_bus_numbers
+    @test data["branch"][1]["f_bus"] == oos_no
+    @test data["branch"][1]["br_status"] == 0
+end
+
+@testset "materialize_node_breaker! de-energizes a generator rerouted onto an out-of-service node" begin
+    data = _oos_node_case(; bus_type = 2, typ = "M", id = "1")
+    data["gen"] = [
+        Dict{String, Any}("gen_bus" => 10, "gen_status" => true,
+            "source_id" => ["generator", "10", "1"]),
+    ]
+    nb = PowerFlowFileParser.materialize_node_breaker!(data)
+    oos_no = nb.node_number[(1, 2)]
+    @test data["gen"][1]["gen_bus"] == oos_no
+    @test data["gen"][1]["gen_status"] == false
+    # An out-of-service node-bus never takes over voltage control, but the source bus
+    # is still demoted because it no longer hosts a generator.
+    @test data["bus"][oos_no]["bus_type"] == 4
+    @test data["bus"][oos_no]["bus_status"] == false
+    @test data["bus"][10]["bus_type"] == 1
+    @test !haskey(get(data["bus"][10], "ext", Dict{String, Any}()), "nb_bus_type_moved_to")
+end
+
+@testset "materialize_node_breaker! de-energizes the 3W winding on an out-of-service node" begin
+    data = _oos_node_case(; bus_type = 1, typ = "3", id = "3W1", secondary_bus = 20)
+    data["bus"][30] = Dict{String, Any}(
+        "bus_i" => 30, "name" => "TER", "base_kv" => 138.0,
+        "bus_type" => 1, "bus_status" => true,
+        "vm" => 1.0, "va" => 0.0, "area" => 1, "zone" => 1,
+        "vmin" => 0.9, "vmax" => 1.1,
+    )
+    data["substation"][1]["terminals"][1]["tertiary_bus"] = 30
+    data["3w_transformer"] = [
+        Dict{String, Any}(
+            "bus_primary" => 10, "bus_secondary" => 20, "bus_tertiary" => 30,
+            "circuit" => "3W1", "available" => true, "available_primary" => true,
+            "available_secondary" => true, "available_tertiary" => true,
+        ),
+    ]
+    nb = PowerFlowFileParser.materialize_node_breaker!(data)
+    oos_no = nb.node_number[(1, 2)]
+    xf = data["3w_transformer"][1]
+    @test xf["bus_primary"] == oos_no
+    @test xf["available_primary"] == 0
+    # The windings on live buses, and so the transformer overall, stay available.
+    @test xf["available_secondary"] == true
+    @test xf["available_tertiary"] == true
+    @test xf["available"] == true
+end
+
+@testset "materialize_node_breaker! de-energizes a load rerouted onto an out-of-service node" begin
+    data = _oos_node_case(; bus_type = 1, typ = "L", id = "1")
+    data["load"] = [
+        Dict{String, Any}("load_bus" => 10, "status" => true,
+            "source_id" => ["load", 10, "1"]),
+    ]
+    nb = PowerFlowFileParser.materialize_node_breaker!(data)
+    oos_no = nb.node_number[(1, 2)]
+    @test data["load"][1]["load_bus"] == oos_no
+    @test data["load"][1]["status"] == false
 end
 
 @testset "_prepare_node_breaker! node without stored voltage inherits bus voltage" begin
@@ -666,6 +859,76 @@ end
     touched = union(ends...)
     @test 1 in touched && 2 in touched
     @test !(Set((1, 2)) in ends)
+end
+
+@testset "v35 substation TYPE 1 generic connector materializes into the other table" begin
+    file = joinpath(@__DIR__, "fixtures", "synthetic_v35_generic_connector.raw")
+    pm_data = PowerModelsData(file).data
+    @test length(pm_data["bus"]) == 4
+
+    @test length(pm_data["breaker"]) == 1
+    @test isempty(pm_data["switch"])
+    @test length(pm_data["other"]) == 1
+
+    other = only(values(pm_data["other"]))
+    @test other["discrete_branch_type"] == 2
+    @test other["state"] == 1
+    @test other["ext"]["TYPE"] == 1
+end
+
+@testset "an out-of-service node survives the isolated-bus reconciliation" begin
+    # This case has an IDE=4 BUS record (bus 4, carrying no devices), so
+    # `has_isolated_type_buses` is true and the end-of-pipeline isolated-bus
+    # reconciliation runs. The out-of-service node must come through it still out of
+    # service, even though an in-service switching device ties it to a live node.
+    file = joinpath(@__DIR__, "fixtures", "synthetic_v35_oos_node_isolated_bus.raw")
+    pm_data = PowerModelsData(file).data
+    @test pm_data["has_isolated_type_buses"]
+
+    node_bus(ni) = only([
+        b for b in values(pm_data["bus"])
+        if get(get(b, "ext", Dict{String, Any}()), "nb_node", nothing) == ni
+    ])
+
+    oos_bus = node_bus(4)
+    @test oos_bus["bus_type"] == 4
+    @test oos_bus["bus_status"] == false
+    @test !(oos_bus["bus_i"] in pm_data["connected_buses"])
+
+    # The in-service node-buses keep their normal treatment.
+    @test node_bus(1)["bus_i"] == 1
+    @test node_bus(1)["bus_type"] == 3
+    @test node_bus(2)["bus_type"] == 1
+    @test node_bus(2)["bus_status"] == true
+
+    # The IDE=4 file bus carries no devices, so it keeps its declared treatment.
+    @test pm_data["bus"][4]["bus_type"] == 4
+    @test pm_data["bus"][4]["bus_status"] == false
+
+    # The device tying the out-of-service node to a live node is kept and de-energized.
+    breakers = collect(values(pm_data["breaker"]))
+    @test length(breakers) == 2
+    oos_cb = only([b for b in breakers if b["ext"]["NAME"] == "SYNTHSUB\$CB\$2"])
+    @test oos_cb["state"] == 0
+    @test oos_bus["bus_i"] in (oos_cb["f_bus"], oos_cb["t_bus"])
+    live_cb = only([b for b in breakers if b["ext"]["NAME"] == "SYNTHSUB\$CB\$1"])
+    @test live_cb["state"] == 1
+    @test only(values(pm_data["switch"]))["state"] == 1
+
+    # BRANCH_1_3's bus-1 endpoint is terminal-wired to the out-of-service node, so it
+    # is rerouted onto that bus and de-energized. `branch_isolated_bus_modifications!`
+    # runs while the BRANCH section is parsed, which is before materialization, so this
+    # can only come from the post-reroute de-energization pass.
+    branches = collect(values(pm_data["branch"]))
+    br13 = only([b for b in branches if b["source_id"][2] == 1 && b["source_id"][3] == 3])
+    @test br13["f_bus"] == oos_bus["bus_i"]
+    @test br13["br_status"] == 0
+    # The branches that never touch the out-of-service node stay in service.
+    for (f, t) in ((1, 2), (2, 3))
+        br = only([b for b in branches
+                   if b["source_id"][2] == f && b["source_id"][3] == t])
+        @test br["br_status"] == 1
+    end
 end
 
 @testset "node-buses inherit the bus voltage when the RAW stores none" begin
