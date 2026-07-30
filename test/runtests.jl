@@ -1,10 +1,11 @@
 using Test
 using Logging
-import PowerSystemCaseBuilder as PSB
+import LazyArtifacts
 import InfrastructureSystems as IS
 import InfrastructureSystems: DataFormatError
 
 using PowerFlowFileParser
+const PFP = PowerFlowFileParser
 
 import Aqua
 Aqua.test_unbound_args(PowerFlowFileParser)
@@ -13,7 +14,8 @@ Aqua.test_ambiguities(PowerFlowFileParser)
 Aqua.test_stale_deps(PowerFlowFileParser)
 Aqua.test_deps_compat(PowerFlowFileParser)
 
-const DATA_DIR = PSB.DATA_DIR
+const DATA_DIR =
+    joinpath(LazyArtifacts.artifact"CaseData", "PowerSystemsTestData-5.0-dev3")
 const MATPOWER_DIR = joinpath(DATA_DIR, "matpower")
 const PSSE_RAW_DIR = joinpath(DATA_DIR, "psse_raw")
 const BAD_DATA = joinpath(DATA_DIR, "bad_data_for_tests")
