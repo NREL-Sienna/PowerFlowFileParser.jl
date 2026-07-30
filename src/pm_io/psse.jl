@@ -661,6 +661,12 @@ function _psse2pm_bus!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     return
 end
 
+# A blank (or absent) numeric field reaches this layer as an empty string, the PTI
+# element parser's "unspecified" marker; PSS/E semantics for an unspecified DGEN field
+# are 0.0/off.
+_dgen_field_value(x::Number) = Float64(x)
+_dgen_field_value(::AbstractString) = 0.0
+
 """
     _psse2pm_load!(pm_data, pti_data)
 
@@ -675,9 +681,9 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool)
         for load in pti_data["LOAD"]
             sub_data = Dict{String, Any}()
             sub_data["load_bus"] = pop!(load, "I")
-            dgenp = pop!(load, "DGENP", 0.0)
-            dgenq = pop!(load, "DGENQ", 0.0)
-            dgenm = pop!(load, "DGENM", 0.0)
+            dgenp = _dgen_field_value(pop!(load, "DGENP", 0.0))
+            dgenq = _dgen_field_value(pop!(load, "DGENQ", 0.0))
+            dgenm = _dgen_field_value(pop!(load, "DGENM", 0.0))
             sub_data["pd"] = pop!(load, "PL")
             sub_data["qd"] = pop!(load, "QL")
             sub_data["pi"] = pop!(load, "IP")
