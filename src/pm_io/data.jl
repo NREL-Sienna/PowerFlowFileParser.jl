@@ -321,6 +321,13 @@ function _make_per_unit!(data::Dict{String, <:Any}, mva_base::Real)
         end
     end
 
+    if haskey(data, "distributed_generation")
+        for (i, dgen) in data["distributed_generation"]
+            _apply_func!(dgen, "pg", rescale)
+            _apply_func!(dgen, "qg", rescale)
+        end
+    end
+
     if haskey(data, "shunt")
         for (i, shunt) in data["shunt"]
             _apply_func!(shunt, "gs", rescale)
@@ -475,6 +482,13 @@ function _make_mixed_units!(data::Dict{String, <:Any})
         for (i, load) in data["load"]
             _apply_func!(load, "pd", rescale)
             _apply_func!(load, "qd", rescale)
+        end
+    end
+
+    if haskey(data, "distributed_generation")
+        for (i, dgen) in data["distributed_generation"]
+            _apply_func!(dgen, "pg", rescale)
+            _apply_func!(dgen, "qg", rescale)
         end
     end
 

@@ -1523,6 +1523,14 @@ const _default_switched_shunt = Dict(
     "S8" => 1, "N8" => 0, "B8" => 0.0,
 )
 
+# v35 adds a switched-shunt "ID" column absent from earlier versions. Kept as a
+# separate dict (not merged into `_default_switched_shunt`) because the v29/30
+# code path in `_populate_defaults!` injects every key of the shared default
+# dict into SWITCHED SHUNT components regardless of the RAW's own fields, and
+# v30 switched shunts have no ID field to default. "1" is the PSS/E v35
+# documented default for an omitted switched-shunt ID.
+const _default_switched_shunt_v35 = merge(_default_switched_shunt, Dict("ID" => "1"))
+
 const _default_gne_device = Dict(
     "NTERM" => 1,
     "NREAL" => 0,
@@ -1580,7 +1588,10 @@ const _default_substation_data_v35 = Dict(
     "LATITUDE" => 0.0,
     "LONGITUDE" => 0.0,
     "SGR" => 0.1,
-    "NODES" => Dict("NAME" => "", "STATUS" => 1, "VM" => 1.0, "VA" => 0.0),
+    # VM/VA are intentionally absent: a node's voltage is optional in the RAW,
+    # and when omitted the node inherits its bus voltage rather than a
+    # fabricated flat 1.0/0.0. _populate_defaults! skips these fields for NODES.
+    "NODES" => Dict("NAME" => "", "STATUS" => 1),
     "SWITCHING DEVICES" => Dict(
         "CKT" => "1",
         "NAME" => "",
@@ -1637,7 +1648,7 @@ const _pti_defaults_v35 = Dict(
     "INTER-AREA TRANSFER" => _default_interarea,
     "OWNER" => _default_owner,
     "FACTS CONTROL DEVICE" => _default_facts,
-    "SWITCHED SHUNT" => _default_switched_shunt,
+    "SWITCHED SHUNT" => _default_switched_shunt_v35,
     "CASE IDENTIFICATION" => _default_case_identification,
     "GNE DEVICE" => _default_gne_device,
     "INDUCTION MACHINE" => _default_induction_machine,
@@ -2747,13 +2758,20 @@ proper types.
 """
 function parse_pti(io::IO)::Dict
     pti_data = _parse_pti_data(io)
-    try
-        pti_data["CASE IDENTIFICATION"][1]["NAME"] = match(
-            r"^\<file\s[\/\\]*(?:.*[\/\\])*(.*)\.raw\>$",
-            lowercase(io.name),
-        ).captures[1]
-    catch
-        throw(error("This file is unrecognized and cannot be parsed"))
+    # Streams without a `name` field (e.g. an IOBuffer) have no file path to derive a
+    # case name from, so the case name is left blank instead of treating the stream as
+    # unrecognized.
+    if hasproperty(io, :name)
+        try
+            pti_data["CASE IDENTIFICATION"][1]["NAME"] = match(
+                r"^\<file\s[\/\\]*(?:.*[\/\\])*(.*)\.raw\>$",
+                lowercase(io.name),
+            ).captures[1]
+        catch
+            throw(error("This file is unrecognized and cannot be parsed"))
+        end
+    else
+        pti_data["CASE IDENTIFICATION"][1]["NAME"] = ""
     end
 
     return pti_data
@@ -2831,6 +2849,14 @@ function _populate_defaults!(data::Dict)
                         for sub_component in field_value
                             for (sub_field, sub_field_value) in sub_component
                                 if sub_field_value == ""
+                                    # Substation NODE voltages are optional; leave
+                                    # them unset when the RAW omits them so a node
+                                    # inheriting its bus voltage is not confused
+                                    # with one that genuinely solved to 1.0/0.0.
+                                    if field == "NODES" &&
+                                       (sub_field == "VM" || sub_field == "VA")
+                                        continue
+                                    end
                                     try
                                         sub_component[sub_field] =
                                             sub_component_defaults[sub_field]

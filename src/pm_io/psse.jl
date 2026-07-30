@@ -483,6 +483,49 @@ function _psse2pm_area_interchange!(pm_data::Dict, pti_data::Dict, import_all::B
     end
 end
 
+"""
+Flags each area's interchange-control bus (the AREA INTERCHANGE record's ISW field)
+with `"area_slack" => true` on its bus record when it is a PV bus, so downstream
+consumers can distinguish per-area slack buses from the system-wide REF bus. A REF
+target is left alone; any other bus type or a missing bus warns and is skipped.
+
+When node-breaker materialization has moved the ISW bus's voltage-control status to
+one of its node-buses, the flag follows the status to that node-bus.
+"""
+function _psse2pm_area_slack!(pm_data::Dict)
+    haskey(pm_data, "area_interchange") || return
+    for area_data in pm_data["area_interchange"]
+        isw = get(area_data, "bus_number", 0)
+        iszero(isw) && continue
+        area_number = string(get(area_data, "area_number", ""))
+        if !haskey(pm_data["bus"], isw)
+            @warn "Area $area_number interchange-control bus (ISW=$isw) was not found among parsed buses; skipping area-slack assignment."
+            continue
+        end
+        isw_bus = pm_data["bus"][isw]
+        bus_type = isw_bus["bus_type"]
+        if !(bus_type in (2, 3))
+            moved_to = get(
+                get(isw_bus, "ext", Dict{String, Any}()),
+                "nb_bus_type_moved_to",
+                nothing,
+            )
+            if moved_to !== nothing && haskey(pm_data["bus"], moved_to)
+                isw_bus = pm_data["bus"][moved_to]
+                bus_type = isw_bus["bus_type"]
+            end
+        end
+        if bus_type == 2
+            isw_bus["area_slack"] = true
+        elseif bus_type == 3
+            @debug "Area $area_number interchange-control bus (ISW=$isw) is the system REF bus"
+        else
+            @warn "Area $area_number interchange-control bus (ISW=$isw) has bus_type $bus_type; expected PV (2) or REF (3). Skipping area-slack assignment."
+        end
+    end
+    return
+end
+
 function _psse2pm_interarea_transfer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     @info "Parsing PSS(R)E InterAreaTransfer data into a PowerModels Dict..."
     pm_data["interarea_transfer"] = []
@@ -627,10 +670,14 @@ by `["I", "ID"]` in the PSS(R)E Load specification.
 function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     @info "Parsing PSS(R)E Load data into a PowerModels Dict..."
     pm_data["load"] = []
+    pm_data["distributed_generation"] = []
     if haskey(pti_data, "LOAD")
         for load in pti_data["LOAD"]
             sub_data = Dict{String, Any}()
             sub_data["load_bus"] = pop!(load, "I")
+            dgenp = pop!(load, "DGENP", 0.0)
+            dgenq = pop!(load, "DGENQ", 0.0)
+            dgenm = pop!(load, "DGENM", 0.0)
             sub_data["pd"] = pop!(load, "PL")
             sub_data["qd"] = pop!(load, "QL")
             sub_data["pi"] = pop!(load, "IP")
@@ -641,7 +688,8 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             # Negative for a capacitive load (injects Q)
             sub_data["qy"] = -pop!(load, "YQ")
             sub_data["conformity"] = pop!(load, "SCALE")
-            sub_data["source_id"] = ["load", sub_data["load_bus"], pop!(load, "ID")]
+            load_id = pop!(load, "ID")
+            sub_data["source_id"] = ["load", sub_data["load_bus"], load_id]
             sub_data["interruptible"] = pop!(load, "INTRPT")
             sub_data["ext"] = Dict{String, Any}()
 
@@ -664,6 +712,22 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["index"] = length(pm_data["load"]) + 1
             if import_all
                 _import_remaining_keys!(sub_data, load)
+            end
+
+            if dgenp != 0.0 || dgenq != 0.0
+                dgen_data = Dict{String, Any}(
+                    "bus" => sub_data["load_bus"],
+                    "pg" => dgenp,
+                    "qg" => dgenq,
+                    "status" => dgenm == 0 ? 0 : 1,
+                    "source_id" => [
+                        "distributed_generation",
+                        sub_data["load_bus"],
+                        String(strip(load_id)),
+                    ],
+                    "index" => length(pm_data["distributed_generation"]) + 1,
+                )
+                push!(pm_data["distributed_generation"], dgen_data)
             end
             push!(pm_data["load"], sub_data)
         end
@@ -1705,6 +1769,23 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 )
             end
             ZbaseR = rectifier_base_voltage^2 / baseMVA
+            # RDC is a DC-circuit resistance in ohms; its per-unit base is the DC voltage
+            # (VSCHD), not the AC commutating base (EBASR) used for the converter branches.
+            # A blocked line (MDC=0) carries no DC voltage schedule to per-unitize on, so
+            # its inert resistance falls back to the rectifier AC base.
+            dc_base_voltage = dcline["VSCHD"]
+            Zbase_dc = if !iszero(dc_base_voltage)
+                dc_base_voltage^2 / baseMVA
+            elseif sub_data["available"]
+                throw(
+                    ArgumentError(
+                        "DC line $(sub_data["name"]): Scheduled DC voltage VSCHD cannot be 0",
+                    ),
+                )
+            else
+                @warn "DC line $(sub_data["name"]) is out of service (MDC=0) with a zero scheduled DC voltage VSCHD; per-unitizing RDC on the rectifier AC base instead."
+                ZbaseR
+            end
             sub_data["rectifier_bridges"] = dcline["NBR"]
             sub_data["rectifier_rc"] = dcline["RCR"] / ZbaseR
             sub_data["rectifier_xc"] = dcline["XCR"] / ZbaseR
@@ -1789,7 +1870,7 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
             sub_data["rectifier_capacitor_reactance"] = dcline["XCAPR"] / ZbaseR
             sub_data["inverter_capacitor_reactance"] = dcline["XCAPI"] / ZbaseI
-            sub_data["r"] = dcline["RDC"] / ZbaseR
+            sub_data["r"] = dcline["RDC"] / Zbase_dc
 
             if pm_data["source_version"] == "30"
                 sub_data["ext"] = Dict{String, Any}(
@@ -2289,6 +2370,24 @@ function _psse2pm_impedance_correction!(pm_data::Dict, pti_data::Dict, import_al
     return
 end
 
+"""
+Builds the clean node Dict for one substation NODE record. `vm`/`va` are carried
+only when the RAW stored a solved voltage for the node; when omitted the keys are
+left absent so the node inherits its bus voltage downstream, rather than being
+defaulted to a flat 1.0/0.0 that would masquerade as a genuine solution.
+"""
+function _psse2pm_substation_node(node::Dict)
+    clean = Dict{String, Any}(
+        "number" => node["NI"],
+        "name" => node["NAME"],
+        "bus" => node["I"],
+        "status" => node["STATUS"],
+    )
+    get(node, "VM", "") isa Number && (clean["vm"] = node["VM"])
+    get(node, "VA", "") isa Number && (clean["va"] = node["VA"])
+    return clean
+end
+
 function _psse2pm_substation_data!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     @info "Parsing PSS(R)E Substation data into a PowerModels Dict..."
     pm_data["substation"] = []
@@ -2305,16 +2404,8 @@ function _psse2pm_substation_data!(pm_data::Dict, pti_data::Dict, import_all::Bo
         sub_data["longitude"] = pop!(substation, "LONGITUDE")
         sub_data["grounding_resistance"] = pop!(substation, "SGR")
 
-        sub_data["nodes"] = [
-            Dict{String, Any}(
-                "number" => node["NI"],
-                "name" => node["NAME"],
-                "bus" => node["I"],
-                "status" => node["STATUS"],
-                "vm" => node["VM"],
-                "va" => node["VA"],
-            ) for node in pop!(substation, "NODES")
-        ]
+        sub_data["nodes"] =
+            [_psse2pm_substation_node(node) for node in pop!(substation, "NODES")]
 
         sub_data["switching_devices"] = [
             Dict{String, Any}(
@@ -2409,6 +2500,8 @@ function _pti_to_powermodels!(
     _psse2pm_substation_data!(pm_data, pti_data, import_all)
     _psse2pm_storage!(pm_data, pti_data, import_all)
 
+    materialize_node_breaker!(pm_data)
+
     if pm_data["has_isolated_type_buses"]
         bus_numbers = Set(v["bus_i"] for (_, v) in pm_data["bus"])
         topologically_isolated_buses = setdiff(bus_numbers, pm_data["connected_buses"])
@@ -2445,6 +2538,8 @@ function _pti_to_powermodels!(
             end
         end
     end
+
+    _psse2pm_area_slack!(pm_data)
 
     if import_all
         _import_remaining_comps!(
