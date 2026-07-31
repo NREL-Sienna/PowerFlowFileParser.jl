@@ -285,13 +285,23 @@ slack assignment) can follow the voltage-control status.
 function _migrate_node_breaker_gen_bus_type!(pm_data::Dict, nb)
     (haskey(pm_data, "gen") && !isempty(nb.nb_bus_numbers)) || return nothing
     gen_moves = Dict{Int, Int}()
+    # Whether the recorded target hosts an IN-SERVICE machine. The type must follow a
+    # live machine whenever the plant has one: an out-of-service unit's node would be
+    # typed PV/REF with no live machine on it, get demoted downstream, and the plant
+    # would stop regulating voltage. Only when every unit is offline may the type land
+    # on a dead unit's node (where demotion is then correct).
+    gen_move_live = Dict{Int, Bool}()
     gen_buses = Set{Int}()
     for d in values(pm_data["gen"])
         target = d["gen_bus"]
         push!(gen_buses, target)
         source = parse(Int, string(d["source_id"][2]))
         source == target && continue
-        haskey(gen_moves, source) || (gen_moves[source] = target)
+        live = get(d, "gen_status", 1) == 1
+        if !haskey(gen_moves, source) || (live && !gen_move_live[source])
+            gen_moves[source] = target
+            gen_move_live[source] = live
+        end
     end
     for (source, target) in gen_moves
         source_bus = pm_data["bus"][source]
