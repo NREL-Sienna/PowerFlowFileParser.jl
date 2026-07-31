@@ -2239,9 +2239,9 @@ function _psse2pm_switch_breaker!(pm_data::Dict, pti_data::Dict, import_all::Boo
     @info "Parsing PSS(R)E Switches & Breakers data into a PowerModels Dict..."
     pm_data["breaker"] = []
     pm_data["switch"] = []
-    pm_data["other"] = []
+    pm_data["generic_connector"] = []
     mapping = Dict('@' => ("breaker", 1), '*' => ("switch", 0))
-    mapping_v35 = Dict(2 => "breaker", 3 => "switch")
+    mapping_v35 = Dict(1 => "generic_connector", 2 => "breaker", 3 => "switch")
 
     # Always check for legacy entries in PSSe 35 for switches and breakers set as @ or *
     if haskey(pti_data, "SWITCHES_AS_BRANCHES")
@@ -2273,7 +2273,12 @@ function _psse2pm_switch_breaker!(pm_data::Dict, pti_data::Dict, import_all::Boo
     if haskey(pti_data, "SWITCHING DEVICE")
         if pm_data["source_version"] == "35"
             for switching_device in pti_data["SWITCHING DEVICE"]
-                device_type = get(mapping_v35, switching_device["STYPE"], "other")
+                stype = switching_device["STYPE"]
+                if !haskey(mapping_v35, stype)
+                    @warn "Unsupported SWITCHING DEVICE STYPE=$stype. Skipping entry."
+                    continue
+                end
+                device_type = mapping_v35[stype]
                 discrete_branch_type =
                     device_type == "breaker" ? 1 : (device_type == "switch" ? 0 : 2)
 

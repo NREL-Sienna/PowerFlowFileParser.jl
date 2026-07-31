@@ -223,10 +223,12 @@ function _nb_target_3w(nb, busno::Int, ckt, others)
 end
 
 """
-Appends each substation switching device to the `breaker`, `switch`, or `other`
-section, in the same shape as system-level switching devices and using the same
-device-type mapping (TYPE 2 breaker, TYPE 3 switch, anything else other). The
-PSS(R)E device type code, device name, and owning substation are preserved in ext.
+Appends each substation switching device to the `breaker`, `switch`, or
+`generic_connector` section, in the same shape as system-level switching devices and
+using the same device-type mapping (TYPE 1 generic connector, TYPE 2 breaker, TYPE 3
+switch). A TYPE outside {1,2,3} is unsupported but still classified as
+`generic_connector`, since dropping a substation device would disconnect node-buses;
+the device type code, device name, and owning substation are preserved in ext.
 Runs immediately after `_psse2pm_switch_breaker!`, which creates those three sections.
 """
 function _create_node_breaker_switch_entries!(pm_data::Dict, nb)
@@ -236,8 +238,11 @@ function _create_node_breaker_switch_entries!(pm_data::Dict, nb)
             ("breaker", 1)
         elseif s.dtype == 3
             ("switch", 0)
+        elseif s.dtype == 1
+            ("generic_connector", 2)
         else
-            ("other", 2)
+            @warn "Substation switching device $(s.name) has unsupported TYPE=$(s.dtype). Classifying as a generic connector."
+            ("generic_connector", 2)
         end
         haskey(pm_data, section) || (pm_data[section] = [])
         device = Dict{String, Any}(

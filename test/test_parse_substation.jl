@@ -156,7 +156,7 @@ end
     @test isempty(bravo["switching_devices"])
     @test isempty(bravo["terminals"])
 
-    @testset "substation switching devices materialize into breaker/switch/other" begin
+    @testset "substation switching devices materialize into breaker/switch/generic_connector" begin
         # Buses 1-3 from the BUS records, plus the two node-buses split off bus 1:
         # node 2 (in service) and node 3 (out of service).
         @test length(pm_data["bus"]) == 5
@@ -207,7 +207,7 @@ end
 
         # The TYPE 1 generic connector is closed in the RAW file but de-energized
         # because node 3's bus is out of service.
-        others = collect(values(pm_data["other"]))
+        others = collect(values(pm_data["generic_connector"]))
         @test length(others) == 1
         gc = only(others)
         @test gc["discrete_branch_type"] == 2
@@ -1115,19 +1115,59 @@ end
     @test !(Set((1, 2)) in ends)
 end
 
-@testset "v35 substation TYPE 1 generic connector materializes into the other table" begin
+@testset "v35 substation TYPE 1 generic connector materializes into the generic_connector table" begin
     file = joinpath(@__DIR__, "fixtures", "synthetic_v35_generic_connector.raw")
     pm_data = PowerModelsData(file).data
     @test length(pm_data["bus"]) == 4
 
     @test length(pm_data["breaker"]) == 1
     @test isempty(pm_data["switch"])
-    @test length(pm_data["other"]) == 1
+    @test length(pm_data["generic_connector"]) == 1
 
-    other = only(values(pm_data["other"]))
+    other = only(values(pm_data["generic_connector"]))
     @test other["discrete_branch_type"] == 2
     @test other["state"] == 1
     @test other["ext"]["TYPE"] == 1
+end
+
+@testset "v35 substation switching device with unsupported TYPE warns and lands in generic_connector" begin
+    raw = read(V35_SUBSTATION_FIXTURE, String)
+    unsupported = replace(
+        raw,
+        "     2,  3, '2 ','ALPHA\$138\$GC\$0003                       ',     1,     1,     1, 0.00010,   0.00,   0.00,   0.00\n" =>
+            "     2,  3, '2 ','ALPHA\$138\$GC\$0003                       ',     9,     1,     1, 0.00010,   0.00,   0.00,   0.00\n",
+    )
+    pm_data = @test_logs(
+        (:warn, r"ALPHA\$138\$GC\$0003.*unsupported TYPE=9"),
+        match_mode = :any,
+        parse_file(IOBuffer(unsupported); filetype = "raw"),
+    )
+    @test length(pm_data["breaker"]) == 1
+    @test length(pm_data["switch"]) == 1
+    gc = only(values(pm_data["generic_connector"]))
+    @test gc["ext"]["TYPE"] == 9
+    @test gc["ext"]["NAME"] == "ALPHA\$138\$GC\$0003"
+end
+
+@testset "system-level SWITCHING DEVICE with unsupported STYPE warns and is skipped" begin
+    # V35_SUBSTATION_FIXTURE's own substation switching devices (one breaker, one
+    # switch, one generic connector) materialize regardless, so the counts below are
+    # that fixture's baseline; the point of this test is that the injected bad
+    # system-level record adds nothing on top of it.
+    raw = read(V35_SUBSTATION_FIXTURE, String)
+    unsupported = replace(
+        raw,
+        "0 / END OF BRANCH DATA, BEGIN SYSTEM SWITCHING DEVICE DATA\n0 / END OF SYSTEM SWITCHING DEVICE DATA, BEGIN TRANSFORMER DATA\n" =>
+            "0 / END OF BRANCH DATA, BEGIN SYSTEM SWITCHING DEVICE DATA\n     1,     2,'1 ', 0.00010, 100.00, 110.00, 120.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,     1,     1,     1,     9,'SW_UNKNOWN                              '\n0 / END OF SYSTEM SWITCHING DEVICE DATA, BEGIN TRANSFORMER DATA\n",
+    )
+    pm_data = @test_logs(
+        (:warn, r"Unsupported SWITCHING DEVICE STYPE=9"),
+        match_mode = :any,
+        parse_file(IOBuffer(unsupported); filetype = "raw"),
+    )
+    @test length(pm_data["breaker"]) == 1
+    @test length(pm_data["switch"]) == 1
+    @test length(pm_data["generic_connector"]) == 1
 end
 
 @testset "an out-of-service node survives the isolated-bus reconciliation" begin
