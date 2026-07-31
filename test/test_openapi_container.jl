@@ -59,8 +59,11 @@ end
     @test PFP.get_bus_id(PFP.get_registry(sys), 101) == id
 end
 
-@testset "SupplementalAttributeAssociation records the link" begin
-    assoc = PFP.SupplementalAttributeAssociation(7, 42)
-    @test assoc.attribute_id == 7
-    @test assoc.entity_id == 42
+@testset "add_supplemental_attribute_association! records the link" begin
+    sys = PFP.OpenAPISystem(100.0)
+    assoc = PFP.add_supplemental_attribute_association!(sys, 7, 42)
+    @test PFP.get_value(assoc, :attribute_id) == 7
+    @test PFP.get_value(assoc, :entity_id) == 42
+    @test only(sys.supplemental_attribute_associations) === assoc
+    @test OpenAPI.check_required(assoc)
 end

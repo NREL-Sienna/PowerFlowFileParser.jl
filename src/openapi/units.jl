@@ -12,6 +12,10 @@ written by the 4-argument form, and one that does not can only be written by the
 
 Assignment goes through `setproperty!` rather than `setfield!`, which runs the
 generated `validate_property` and so keeps enum and range checks in force.
+
+A property annotated `x-unit-base` is per-unit on a sibling property rather than on
+a scalar factor. Assigning one converts through that sibling's own declared unit,
+so the sibling must be assigned first.
 """
 
 """
@@ -59,7 +63,7 @@ function _reject_declared(o::OpenAPI.APIModel, prop::Symbol)
     return
 end
 
-function _convert(
+function _convert_by_factor(
     o::OpenAPI.APIModel,
     prop::Symbol,
     value::Float64,
@@ -89,6 +93,80 @@ function _convert(
     end
     return value * PC.conversion_factor(quantity, source_unit) /
            PC.conversion_factor(quantity, target)
+end
+
+"""Whether the sibling property holding a per-unit value's base has been assigned."""
+function _base_is_set(o::OpenAPI.APIModel, base_prop::Symbol)
+    return !isnothing(getproperty(o, base_prop))
+end
+
+"""
+The assigned base, rejected unless it is positive.
+
+A zero or negative voltage or power base is physically meaningless, and PSS/E writes
+`BASKV = 0.0` for buses with no specified base. Dividing by it would store an `Inf` or
+`NaN` that survives every later check and first fails inside `JSON.print`, after the
+output file has been truncated.
+"""
+function _checked_base(o::OpenAPI.APIModel, prop::Symbol, base_prop::Symbol)
+    base = getproperty(o, base_prop)
+    if base <= 0
+        throw(
+            IS.DataFormatError(
+                "$(nameof(typeof(o))).$prop is per-unit on $base_prop, which is $base; " *
+                "the base must be positive",
+            ),
+        )
+    end
+    return base
+end
+
+"""
+Convert into a per-unit property whose base lives in a sibling property.
+
+`x-unit-base` names that sibling. The base carries its own declared unit, so the
+incoming value is first brought into that unit by the factor path and then divided.
+The base must already be assigned, which makes assignment order significant here
+and nowhere else.
+"""
+function _convert_onto_base(
+    o::OpenAPI.APIModel,
+    prop::Symbol,
+    value::Float64,
+    source_unit::AbstractString,
+    target::AbstractString,
+    quantity::AbstractString,
+)
+    T = typeof(o)
+    base_prop = PC.unit_base(T, Val(prop))
+    if !_base_is_set(o, base_prop)
+        throw(
+            IS.DataFormatError(
+                "$(nameof(T)).$prop is $quantity in \"$target\" on $base_prop, which is " *
+                "unset; assign $base_prop first",
+            ),
+        )
+    end
+    base_unit, base_quantity = _declared(o, base_prop)
+    natural = _convert_by_factor(o, prop, value, source_unit, base_unit, base_quantity)
+    return natural / _checked_base(o, prop, base_prop)
+end
+
+function _convert(
+    o::OpenAPI.APIModel,
+    prop::Symbol,
+    value::Float64,
+    source_unit::AbstractString,
+    target::AbstractString,
+    quantity::AbstractString,
+)
+    if source_unit == target
+        return value
+    end
+    if PC.has_unit_base(typeof(o), Val(prop))
+        return _convert_onto_base(o, prop, value, source_unit, target, quantity)
+    end
+    return _convert_by_factor(o, prop, value, source_unit, target, quantity)
 end
 
 """Convert `value` from `source_unit` into the unit `prop` declares."""
@@ -175,6 +253,26 @@ function get_value(o::OpenAPI.APIModel, prop::Symbol, unit::AbstractString)
         return value
     end
     T = typeof(o)
+    if PC.has_unit_base(T, Val(prop))
+        base_prop = PC.unit_base(T, Val(prop))
+        if !_base_is_set(o, base_prop)
+            throw(
+                IS.DataFormatError(
+                    "$(nameof(T)).$prop is $quantity in \"$source\" on $base_prop, " *
+                    "which is unset; assign $base_prop first",
+                ),
+            )
+        end
+        base_unit, base_quantity = _declared(o, base_prop)
+        return _convert_by_factor(
+            o,
+            prop,
+            value * _checked_base(o, prop, base_prop),
+            base_unit,
+            unit,
+            base_quantity,
+        )
+    end
     if !PC.has_conversion_factor(quantity, unit) ||
        !PC.has_conversion_factor(quantity, source)
         throw(

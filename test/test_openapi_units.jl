@@ -17,13 +17,13 @@ end
 end
 
 @testset "set_value! converts within a quantity" begin
-    reserve = PFP.PO.ConstantReserve()
-    PFP.set_value!(reserve, :time_frame, 1.0, "h")
-    @test reserve.time_frame ≈ 60.0
-
     storage = PFP.PO.EnergyReservoirStorage()
     PFP.set_value!(storage, :storage_capacity, 3600.0, "MJ")
     @test storage.storage_capacity ≈ 1.0
+
+    converter = PFP.PO.InterconnectingConverter()
+    PFP.set_value!(converter, :dc_current, 1.5, "kA")
+    @test converter.dc_current ≈ 1500.0
 end
 
 @testset "set_value! rejects a cross-quantity conversion" begin
@@ -42,10 +42,73 @@ end
     @test bus.angle == 0.0
 end
 
-@testset "set_value! rejects pu, which needs a base rather than a factor" begin
+@testset "a pu property converts from the unit its base is declared in" begin
     bus = PFP.PO.ACBus()
-    # magnitude is declared pu on base_voltage; kV cannot be converted into it.
-    @test_throws IS.DataFormatError PFP.set_value!(bus, :magnitude, 138.0, "kV")
+    PFP.set_value!(bus, :base_voltage, 138.0, "kV")
+    PFP.set_value!(bus, :magnitude, 141.45, "kV")
+    @test bus.magnitude ≈ 1.025
+
+    PFP.set_value!(bus, :magnitude, 1.0, "pu")
+    @test bus.magnitude == 1.0
+end
+
+@testset "a compound pu property converts every member onto the base" begin
+    bus = PFP.PO.ACBus()
+    PFP.set_value!(bus, :base_voltage, 138.0, "kV")
+    PFP.set_value!(bus, :voltage_limits, (min = 131.1, max = 144.9), "kV")
+    @test bus.voltage_limits.min ≈ 0.95
+    @test bus.voltage_limits.max ≈ 1.05
+end
+
+@testset "converting onto an unset base names the base property" begin
+    bus = PFP.PO.ACBus()
+    @test_throws IS.DataFormatError PFP.set_value!(bus, :magnitude, 141.45, "kV")
+end
+
+@testset "a non-positive base is rejected rather than stored as Inf or NaN" begin
+    # PSS/E writes BASKV = 0.0 for buses with no specified base.
+    zero_base = PFP.PO.ACBus()
+    PFP.set_value!(zero_base, :base_voltage, 0.0, "kV")
+    @test_throws IS.DataFormatError PFP.set_value!(zero_base, :magnitude, 138.0, "kV")
+    @test_throws IS.DataFormatError PFP.set_value!(zero_base, :magnitude, 0.0, "kV")
+    @test_throws IS.DataFormatError PFP.set_value!(
+        zero_base,
+        :voltage_limits,
+        (min = 131.1, max = 144.9),
+        "kV",
+    )
+
+    negative_base = PFP.PO.ACBus()
+    PFP.set_value!(negative_base, :base_voltage, -138.0, "kV")
+    @test_throws IS.DataFormatError PFP.set_value!(negative_base, :magnitude, 138.0, "kV")
+end
+
+@testset "get_value rejects a non-positive base" begin
+    bus = PFP.PO.ACBus()
+    PFP.set_value!(bus, :base_voltage, 0.0, "kV")
+    PFP.set_value!(bus, :magnitude, 1.0, "pu")
+    @test_throws IS.DataFormatError PFP.get_value(bus, :magnitude, "kV")
+end
+
+@testset "get_value onto an unset base names the base property" begin
+    bus = PFP.PO.ACBus()
+    PFP.set_value!(bus, :magnitude, 1.025, "pu")
+    @test_throws IS.DataFormatError PFP.get_value(bus, :magnitude, "kV")
+end
+
+@testset "get_value expresses a pu value in the base's unit" begin
+    bus = PFP.PO.ACBus()
+    PFP.set_value!(bus, :base_voltage, 138.0, "kV")
+    PFP.set_value!(bus, :magnitude, 1.025, "pu")
+    @test PFP.get_value(bus, :magnitude) == 1.025
+    @test PFP.get_value(bus, :magnitude, "kV") ≈ 141.45
+end
+
+@testset "the base mechanism is not ACBus-specific" begin
+    source = PFP.PO.Source()
+    PFP.set_value!(source, :base_voltage, 230.0, "kV")
+    PFP.set_value!(source, :internal_voltage, 234.6, "kV")
+    @test source.internal_voltage ≈ 1.02
 end
 
 @testset "set_value! rejects units absent from the vocabulary" begin
@@ -94,10 +157,10 @@ end
 end
 
 @testset "compound properties convert every member" begin
-    gen = PFP.PO.ThermalStandard()
-    PFP.set_value!(gen, :time_limits, (up = 120.0, down = 60.0), "min")
-    @test gen.time_limits.up ≈ 2.0
-    @test gen.time_limits.down ≈ 1.0
+    line = PFP.PO.Line()
+    PFP.set_value!(line, :angle_limits, (min = -30.0, max = 30.0), "deg")
+    @test line.angle_limits.min ≈ -pi / 6
+    @test line.angle_limits.max ≈ pi / 6
 end
 
 @testset "discriminated units are read off the instance" begin
@@ -120,7 +183,19 @@ end
     @test PFP.get_value(bus, :base_voltage, "kV") == 138.0
     @test_throws IS.DataFormatError PFP.get_value(bus, :base_voltage, "MW")
 
+    storage = PFP.PO.EnergyReservoirStorage()
+    PFP.set_value!(storage, :storage_capacity, 1.0, "MWh")
+    @test PFP.get_value(storage, :storage_capacity, "MJ") ≈ 3600.0
+end
+
+@testset "operational time is minutes, and the vocabulary has no hour" begin
+    gen = PFP.PO.ThermalStandard()
+    PFP.set_value!(gen, :time_limits, (up = 120.0, down = 60.0), "min")
+    @test gen.time_limits.up == 120.0
+    @test gen.time_limits.down == 60.0
+
     reserve = PFP.PO.ConstantReserve()
     PFP.set_value!(reserve, :time_frame, 60.0, "min")
-    @test PFP.get_value(reserve, :time_frame, "h") ≈ 1.0
+    @test reserve.time_frame == 60.0
+    @test_throws IS.DataFormatError PFP.set_value!(reserve, :sustained_time, 1.0, "h")
 end
