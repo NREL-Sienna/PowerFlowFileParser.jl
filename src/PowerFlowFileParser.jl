@@ -8,6 +8,7 @@ module PowerFlowFileParser
 export PowerModelsData
 export parse_file
 export OpenAPISystem
+export to_json
 
 #################################################################################
 # Imports
@@ -40,6 +41,7 @@ include("pm_io.jl")
 include("openapi/identity.jl")
 include("openapi/units.jl")
 include("openapi/container.jl")
+include("openapi/serialize.jl")
 
 #################################################################################
 

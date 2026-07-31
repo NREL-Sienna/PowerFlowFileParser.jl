@@ -6,6 +6,8 @@ import InfrastructureSystems: DataFormatError
 
 using PowerFlowFileParser
 const PFP = PowerFlowFileParser
+import JSON
+import OpenAPI
 
 import Aqua
 Aqua.test_unbound_args(PowerFlowFileParser)
