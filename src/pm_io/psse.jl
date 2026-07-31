@@ -878,6 +878,12 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
                 error("Unsupported PSS(R)E source version: $(pm_data["source_version"])")
             end
 
+            if switched_shunt["MODSW"] ∈ (0, 1, 2)
+                # BINIT is treated as the total shunt admittance.
+                # Keep Y_increase but zero all initial states to avoid double counting.
+                sub_data["initial_status"] = zeros(Int, length(sub_data["y_increment"]))
+            end
+
             sub_data["index"] = length(pm_data["switched_shunt"]) + 1
             sub_data["source_id"] = ["switched shunt", bus_number, sub_data["index"]]
 
