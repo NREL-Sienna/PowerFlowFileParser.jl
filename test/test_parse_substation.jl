@@ -163,7 +163,7 @@ end
         alpha_node(ni) = only([
             b for b in values(pm_data["bus"])
             if get(get(b, "ext", Dict{String, Any}()), "nb_substation", nothing) == 1 &&
-               get(b["ext"], "nb_node", nothing) == ni
+            get(b["ext"], "nb_node", nothing) == ni
         ])
         # The out-of-service node materializes with the same encoding a BUS record with
         # IDE=4 gets, so the isolated-bus reconciliation treats it identically: two
@@ -329,7 +329,8 @@ end
                 ],
             ),
         ],
-        "load" => [Dict{String, Any}("load_bus" => 10, "source_id" => ["load", 10, "1"])],
+        "load" =>
+            [Dict{String, Any}("load_bus" => 10, "source_id" => ["load", 10, "1"])],
     )
     nb = PowerFlowFileParser._prepare_node_breaker!(data)
     new_no = nb.node_number[(1, 2)]
@@ -519,7 +520,7 @@ Q
         branch_by_id(f, t) = only([
             b for b in values(pm_data["branch"])
             if b["source_id"][1] == "branch" && b["source_id"][2] == f &&
-               b["source_id"][3] == t
+            b["source_id"][3] == t
         ])
         br23 = branch_by_id(2, 3)
         @test br23["f_bus"] == oos_no
@@ -598,7 +599,8 @@ end
                 # column, so matching has to try both siblings.
                 "terminals" => [
                     Dict{String, Any}("bus" => 10, "node" => 2, "type" => "3",
-                        "secondary_bus" => 30, "tertiary_bus" => 20, "id" => "3W1"),
+                        "secondary_bus" => 30, "tertiary_bus" => 20,
+                        "id" => "3W1"),
                 ],
             ),
         ],
@@ -730,7 +732,8 @@ end
                 "terminals" => [
                     Dict{String, Any}("bus" => 10, "node" => 1, "type" => "S",
                         "id" => "1"),
-                    Dict{String, Any}("bus" => 10, "node" => second_node, "type" => "S",
+                    Dict{String, Any}("bus" => 10, "node" => second_node,
+                        "type" => "S",
                         "id" => "1"),
                 ],
             ),
@@ -746,9 +749,10 @@ end
 
     # Two terminals that agree on the node are not a conflict and stay silent.
     agreeing = make_data(1)
-    nb_quiet = @test_logs min_level = Logging.Warn PowerFlowFileParser._prepare_node_breaker!(
-        agreeing,
-    )
+    nb_quiet =
+        @test_logs min_level = Logging.Warn PowerFlowFileParser._prepare_node_breaker!(
+            agreeing,
+        )
     @test PowerFlowFileParser._nb_target(nb_quiet, 10, "S", nothing, "1") == 10
 end
 
@@ -1134,8 +1138,7 @@ end
     raw = read(V35_SUBSTATION_FIXTURE, String)
     unsupported = replace(
         raw,
-        "     2,  3, '2 ','ALPHA\$138\$GC\$0003                       ',     1,     1,     1, 0.00010,   0.00,   0.00,   0.00\n" =>
-            "     2,  3, '2 ','ALPHA\$138\$GC\$0003                       ',     9,     1,     1, 0.00010,   0.00,   0.00,   0.00\n",
+        "     2,  3, '2 ','ALPHA\$138\$GC\$0003                       ',     1,     1,     1, 0.00010,   0.00,   0.00,   0.00\n" => "     2,  3, '2 ','ALPHA\$138\$GC\$0003                       ',     9,     1,     1, 0.00010,   0.00,   0.00,   0.00\n",
     )
     pm_data = @test_logs(
         (:warn, r"ALPHA\$138\$GC\$0003.*unsupported TYPE=9"),
@@ -1157,8 +1160,7 @@ end
     raw = read(V35_SUBSTATION_FIXTURE, String)
     unsupported = replace(
         raw,
-        "0 / END OF BRANCH DATA, BEGIN SYSTEM SWITCHING DEVICE DATA\n0 / END OF SYSTEM SWITCHING DEVICE DATA, BEGIN TRANSFORMER DATA\n" =>
-            "0 / END OF BRANCH DATA, BEGIN SYSTEM SWITCHING DEVICE DATA\n     1,     2,'1 ', 0.00010, 100.00, 110.00, 120.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,     1,     1,     1,     9,'SW_UNKNOWN                              '\n0 / END OF SYSTEM SWITCHING DEVICE DATA, BEGIN TRANSFORMER DATA\n",
+        "0 / END OF BRANCH DATA, BEGIN SYSTEM SWITCHING DEVICE DATA\n0 / END OF SYSTEM SWITCHING DEVICE DATA, BEGIN TRANSFORMER DATA\n" => "0 / END OF BRANCH DATA, BEGIN SYSTEM SWITCHING DEVICE DATA\n     1,     2,'1 ', 0.00010, 100.00, 110.00, 120.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,     1,     1,     1,     9,'SW_UNKNOWN                              '\n0 / END OF SYSTEM SWITCHING DEVICE DATA, BEGIN TRANSFORMER DATA\n",
     )
     pm_data = @test_logs(
         (:warn, r"Unsupported SWITCHING DEVICE STYPE=9"),
