@@ -127,3 +127,6 @@ $RECYCLE.BIN/
 
 # Private ERCOT SSWG cases — never commit
 SSWG/
+
+# Claude working plans — never commit
+.claude/plans/
