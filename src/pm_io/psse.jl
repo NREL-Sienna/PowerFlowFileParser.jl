@@ -261,6 +261,69 @@ function _psse2pm_branch!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
     return
 end
 
+"""
+Salvage line-connected shunts from a BRANCH record that is really a switching
+device (CKT prefixed `@` or `*`), emitting each non-zero end as its own shunt.
+
+A System Switching Device carries only a reactance below the zero-impedance
+threshold — the RAW record has no GI/BI/GJ/BJ columns at all, and a breaker or
+disconnect has no line-connected reactor or capacitor to describe. So a
+switching-device row carrying non-zero line shunts is malformed input. Dropping
+it would silently lose admittance, and keeping it on the switching device would
+model a shunt hanging off a breaker, so the admittance is relocated to the bus
+at the end it was declared on and the caller is warned.
+
+GI/BI/GJ/BJ are entered in pu **on the system base**: a BRANCH record declares no
+MVA base of its own, unlike a transformer winding which carries SBASE1-2 and
+friends, so SBASE is the only base available to interpret them against. A FIXED
+SHUNT's GL/BL are MW/MVAr at unity voltage instead, and `_make_per_unit!`
+divides every shunt `gs`/`bs` by the case base. Scaling by `baseMVA` here puts
+the value on the same footing as every other shunt, so that division lands back
+on the system-base pu value the RAW declared.
+
+The status is taken from the device's ST because the RAW defines these shunts as
+"connected to and switched with the line": the admittance is only in service
+when the device it was declared on is.
+"""
+function _switching_device_line_shunts!(pm_data::Dict, branch::Dict, nb)
+    ckt = branch["CKT"]
+    # A negative terminal bus number marks the metered end; the bus is its magnitude.
+    from_bus = abs(branch["I"])
+    to_bus = abs(branch["J"])
+    ends = (
+        ("I", from_bus, to_bus, get(branch, "GI", 0.0), get(branch, "BI", 0.0)),
+        ("J", to_bus, from_bus, get(branch, "GJ", 0.0), get(branch, "BJ", 0.0)),
+    )
+    for (label, bus_number, other_bus, gs, bs) in ends
+        if iszero(gs) && iszero(bs)
+            continue
+        end
+        @warn(
+            "Switching device $from_bus -> $to_bus with CKT=$ckt declares a " *
+            "line-connected shunt at its $label end (G=$gs, B=$bs). A switching " *
+            "device has no line shunt, so this admittance is being parsed as a " *
+            "shunt at bus $bus_number instead of being attached to the " *
+            "DiscreteControlledACBranch. Verify the source data: a branch with " *
+            "real line shunts is a transmission line, not a breaker or switch."
+        )
+        if !haskey(pm_data, "shunt")
+            pm_data["shunt"] = []
+        end
+        shunt_data = Dict{String, Any}()
+        # Same terminal lookup the branch itself uses, so under a node-breaker
+        # model the shunt lands on the node the switching device attaches to.
+        shunt_data["shunt_bus"] = _nb_target(nb, bus_number, "B", other_bus, ckt)
+        mva_base = pm_data["baseMVA"]
+        shunt_data["gs"] = gs * mva_base
+        shunt_data["bs"] = bs * mva_base
+        shunt_data["status"] = get(branch, "ST", 1)
+        shunt_data["source_id"] = ["branch shunt", from_bus, to_bus, ckt, label]
+        shunt_data["index"] = length(pm_data["shunt"]) + 1
+        push!(pm_data["shunt"], shunt_data)
+    end
+    return
+end
+
 function branch_isolated_bus_modifications!(pm_data::Dict, branch_data::Dict)
     bus_data = pm_data["bus"]
     from_bus_no = branch_data["f_bus"]
@@ -2257,6 +2320,11 @@ function _psse2pm_switch_breaker!(pm_data::Dict, pti_data::Dict, import_all::Boo
             # Check if character is in the mapping
             if haskey(mapping, branch_init)
                 branch_type, discrete_branch_type = mapping[branch_init]
+
+                # Before the builder pops "I"/"J": a BRANCH row routed here is a
+                # switching device, which has no line shunt, so any GI/BI/GJ/BJ it
+                # carries has to be relocated rather than dropped.
+                _switching_device_line_shunts!(pm_data, branch, nb)
 
                 sub_data = _build_switch_breaker_sub_data(
                     pm_data,
