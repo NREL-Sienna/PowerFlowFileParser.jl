@@ -17,7 +17,7 @@ Aqua.test_stale_deps(PowerFlowFileParser)
 Aqua.test_deps_compat(PowerFlowFileParser)
 
 const DATA_DIR =
-    joinpath(LazyArtifacts.artifact"CaseData", "PowerSystemsTestData-5.0-dev3")
+    joinpath(LazyArtifacts.artifact"CaseData", "PowerSystemsTestData-5.0-dev4")
 const MATPOWER_DIR = joinpath(DATA_DIR, "matpower")
 const PSSE_RAW_DIR = joinpath(DATA_DIR, "psse_raw")
 const BAD_DATA = joinpath(DATA_DIR, "bad_data_for_tests")
