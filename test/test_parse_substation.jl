@@ -1257,7 +1257,7 @@ end
     # System Switching Device record has no GI/BI/GJ/BJ columns at all -- such a
     # row is malformed input. The admittance is relocated to the bus at the end
     # it was declared on rather than dropped or hung off the switching device.
-    file = joinpath(@__DIR__, "fixtures", "synthetic_v35_switching_device_line_shunt.raw")
+    file = joinpath(PSSE_RAW_DIR, "psse_v35_switching_device_line_shunt.raw")
     pm_data = PowerModelsData(file).data
 
     @test length(pm_data["breaker"]) == 1
