@@ -170,7 +170,7 @@ end
     @test line.r == 5.0
 
     other = PFP.PO.TwoTerminalLCCLine()
-    PFP.set_value!(other, :parameter_units, "SYSTEM_BASE")
+    PFP.set_value!(other, :parameter_units, "DEVICE_BASE")
     @test_throws IS.DataFormatError PFP.set_value!(other, :r, 5.0, "ohm")
     PFP.set_value!(other, :r, 0.01, "pu")
     @test other.r == 0.01
@@ -194,7 +194,7 @@ end
     @test gen.time_limits.up == 120.0
     @test gen.time_limits.down == 60.0
 
-    reserve = PFP.PO.ConstantReserve()
+    reserve = PFP.PO.OnlineReserve()
     PFP.set_value!(reserve, :time_frame, 60.0, "min")
     @test reserve.time_frame == 60.0
     @test_throws IS.DataFormatError PFP.set_value!(reserve, :sustained_time, 1.0, "h")

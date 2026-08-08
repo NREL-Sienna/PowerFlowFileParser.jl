@@ -12,6 +12,32 @@ end
     @test length(PFP.get_components(sys, "LoadZone")) == 1
 end
 
+@testset "build_openapi_system warns about unconsumed pm dict sections" begin
+    sys = @test_logs(
+        (:warn, r"gen"),
+        match_mode = :any,
+        PFP.build_openapi_system(_fourteen_bus_pm_data()),
+    )
+    # The warning names sections, not just "gen"; every category the 14-bus fixture
+    # carries (loads, generators, branches, shunts, FACTS, a DC line) is still absent
+    # from the document — the warning is the only signal of that, so it must fire.
+    @test PFP.component_type_names(sys) == ["ACBus", "Area", "LoadZone"]
+end
+
+@testset "the unconsumed-section warning excludes scalar pm dict keys and fully-consumed sections" begin
+    data = _fourteen_bus_pm_data().data
+    only_consumed = Dict{String, Any}(
+        "bus" => data["bus"],
+        "baseMVA" => data["baseMVA"],
+        "source_type" => data["source_type"],
+        "per_unit" => data["per_unit"],
+    )
+    logs, _ = Test.collect_test_logs() do
+        PFP._warn_unconsumed_sections(only_consumed)
+    end
+    @test isempty(logs)
+end
+
 @testset "LoadZone peak sums bus loads and converts system pu to MW/MVAr" begin
     sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
     zone = only(PFP.get_components(sys, "LoadZone"))
