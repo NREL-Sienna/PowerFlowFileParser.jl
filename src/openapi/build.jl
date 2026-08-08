@@ -50,11 +50,51 @@ function read_attributes!(::OpenAPISystem, ::Dict; kwargs...)
 end
 
 """
+pm dict section names `build_openapi_system` fully consumes today.
+
+Every other top-level key whose value is itself a `Dict` (a pm dict "section": a keyed
+collection of records, as opposed to a scalar like `baseMVA` or `source_type`) is a
+component category no reader has touched yet. As sub-tasks 13b-13d land, each newly
+consumed section's name joins this tuple and leaves [`_warn_unconsumed_sections`](@ref)'s
+warning. Once every dict-valued pm section is accounted for here, that warning should
+become an `error()`: at that point a name this tuple doesn't list is a genuinely
+unrecognized pm-dict shape, not a known, tracked gap.
+"""
+const _CONSUMED_PM_SECTIONS = ("bus",)
+
+"""
+Warn once, naming every non-empty pm dict section [`build_openapi_system`](@ref) did not
+read, so a document missing whole categories of components is never mistaken for a
+complete one. Scalar/metadata keys (`baseMVA`, `name`, `source_type`, `source_version`,
+`per_unit`, `has_isolated_type_buses`) are not sections; they are excluded by checking
+`isa AbstractDict` rather than by listing them.
+"""
+function _warn_unconsumed_sections(data::Dict)
+    unconsumed = Tuple{String, Int}[]
+    for (key, value) in data
+        if key in _CONSUMED_PM_SECTIONS || !(value isa AbstractDict) || isempty(value)
+            continue
+        end
+        push!(unconsumed, (String(key), length(value)))
+    end
+    if isempty(unconsumed)
+        return
+    end
+    sort!(unconsumed; by = first)
+    named = join(("$key ($count)" for (key, count) in unconsumed), ", ")
+    @warn "build_openapi_system did not read $(length(unconsumed)) non-empty pm dict section(s); their components are absent from the emitted document, not merely empty: $named"
+    return
+end
+
+"""
 Assemble an `OpenAPISystem` from `pm_data`.
 
 Runs [`read_loadzones!`](@ref) then [`read_bus!`](@ref) — in that order, because a bus
 resolves its load zone by id — and stops there. Every later stage in the Phase 3 plan
-has a same-named stub above; none is called from here yet.
+has a same-named stub above; none is called from here yet. Before returning, warns about
+every non-empty pm dict section neither reader touched (see
+[`_warn_unconsumed_sections`](@ref)), so a caller never mistakes a partial document for a
+complete one.
 
 `unit_system` selects the convention the values are stored in, same as
 [`OpenAPISystem`](@ref). Keyword arguments are threaded through to every reader
@@ -77,5 +117,6 @@ function build_openapi_system(
     read_loadzones!(sys, data; kwargs...)
     read_bus!(sys, data; kwargs...)
 
+    _warn_unconsumed_sections(data)
     return sys
 end
