@@ -196,24 +196,38 @@ this explicitly).
 **RECORDED GAP**: `PowerOperationsOpenAPIModels.jl`'s generated `units.jl` used to raise
 `"no unit declared"` from `PC.declared_unit` for the `DC_VOLTAGE`/`DC_VOLTAGE_DROOP`/
 `AC_VOLTAGE` branches of `dc_setpoint_from`/`ac_setpoint_from`; that codegen gap is now
-closed (the emitter resolves the schema's nested `voltage_units` discriminator), so those
-branches no longer error. This reader has not been updated to use them correctly, though:
-it hardcodes `set_value!(..., "kV")` for the DC_VOLTAGE/AC_VOLTAGE branches below regardless
-of `voltage_units` (never set here, so it stays at its schema default `NATURAL_UNITS`),
-while `psse.jl`'s own comment states the DC-voltage-controlling side's raw value is p.u. of
-`rated_dc_voltage`, not kV, and PSS/E's `ACSET` is conventionally already p.u. of the AC
-bus's own base voltage. Re-tagging both as `"pu"` with `voltage_units` set to
-`DEVICE_BASE` would be the physically correct fix, but `voltage_units` is a single field
-shared with `voltage_limits_from`/`to` on this component (also unset here, defaulting to
-kV-flavored bounds `{min: 0.0, max: 999.9}`) — flipping it to `DEVICE_BASE` would silently
-relabel those untouched defaults as per-unit too. Fixing this properly needs either
-explicit `voltage_limits_from`/`to` values or a schema change to decouple the two setpoint
-bases from the limits basis; both are out of scope here and left as recorded debt.
+closed (the emitter resolves the schema's nested `voltage_units` discriminator), so
+`set_value!(..., "kV")` on those branches would no longer error on its own -- it would
+silently store the raw PSS/E value under the wrong unit tag. `psse.jl`'s own comment states
+the DC-voltage-controlling side's raw value is p.u. of `rated_dc_voltage`, not kV, and
+PSS/E's `ACSET` is conventionally already p.u. of the AC bus's own base voltage. Re-tagging
+both as `"pu"` with `voltage_units` set to `DEVICE_BASE` would be the physically correct
+fix, but `voltage_units` is a single field shared with `voltage_limits_from`/`to` on this
+component (also unset here, defaulting to kV-flavored bounds `{min: 0.0, max: 999.9}`) --
+flipping it to `DEVICE_BASE` would silently relabel those untouched defaults as per-unit
+too. Fixing this properly needs either explicit `voltage_limits_from`/`to` values or a
+schema change to decouple the two setpoint bases from the limits basis; both are out of
+scope here. Until then this maker raises a loud `error()` rather than storing a wrong-unit
+value under a codegen path that no longer objects -- see `_vsc_voltage_control_unsupported`.
 
 No fixture on hand carries a `vscline` entry (`_CONSUMED_PM_SECTIONS` covers the section
 regardless, so an empty one warns about nothing); this maker is exercised by synthetic
 dicts in the test suite.
 """
+function _vsc_voltage_control_unsupported(
+    name::AbstractString,
+    side::AbstractString,
+    mode::AbstractString,
+)
+    error(
+        "TwoTerminalVSCLine \"$name\": $side converter controls $mode, which this reader " *
+        "cannot yet emit correctly -- dc_setpoint_from/to (DC_VOLTAGE/DC_VOLTAGE_DROOP) and " *
+        "ac_setpoint_from/to (AC_VOLTAGE) need voltage_units=DEVICE_BASE plus a unit of \"pu\", " *
+        "but voltage_units is shared with voltage_limits_from/to, which have no PSS/E-derived " *
+        "value to move onto that basis. See make_vscline!'s docstring RECORDED GAP note.",
+    )
+    return
+end
 function make_vscline!(
     sys::OpenAPISystem,
     reg::IdRegistry,
@@ -252,15 +266,15 @@ function make_vscline!(
         set_value!(component, :ac_control_from, "AC_REACTIVE_POWER")
     end
     if d["dc_voltage_control_from"]
-        # DC_VOLTAGE: not sys_mbase-scaled -- see the RECORDED GAP note above,
-        # this "kV" tag does not match the p.u.-of-rated_dc_voltage value
-        # psse.jl actually supplies here.
-        set_value!(component, :dc_setpoint_from, d["dc_setpoint_from"], "kV")
+        # DC_VOLTAGE: see the RECORDED GAP note above -- loud failure instead
+        # of silently storing a p.u. value under a "kV" tag.
+        _vsc_voltage_control_unsupported(name, "from", "DC_VOLTAGE")
     else
         set_value!(component, :dc_setpoint_from, d["dc_setpoint_from"] * sys_mbase, "MW")
     end
     if d["ac_voltage_control_from"]
-        set_value!(component, :ac_setpoint_from, d["ac_setpoint_from"], "kV")
+        # AC_VOLTAGE: same recorded gap as dc_setpoint_from above.
+        _vsc_voltage_control_unsupported(name, "from", "AC_VOLTAGE")
     else
         set_value!(component, :ac_setpoint_from, d["ac_setpoint_from"], "1")
     end
@@ -294,14 +308,14 @@ function make_vscline!(
         set_value!(component, :ac_control_to, "AC_REACTIVE_POWER")
     end
     if d["dc_voltage_control_to"]
-        # DC_VOLTAGE: not sys_mbase-scaled, same recorded gap as
-        # dc_setpoint_from above.
-        set_value!(component, :dc_setpoint_to, d["dc_setpoint_to"], "kV")
+        # DC_VOLTAGE: same recorded gap as dc_setpoint_from above.
+        _vsc_voltage_control_unsupported(name, "to", "DC_VOLTAGE")
     else
         set_value!(component, :dc_setpoint_to, d["dc_setpoint_to"] * sys_mbase, "MW")
     end
     if d["ac_voltage_control_to"]
-        set_value!(component, :ac_setpoint_to, d["ac_setpoint_to"], "kV")
+        # AC_VOLTAGE: same recorded gap as dc_setpoint_from above.
+        _vsc_voltage_control_unsupported(name, "to", "AC_VOLTAGE")
     else
         set_value!(component, :ac_setpoint_to, d["ac_setpoint_to"], "1")
     end
