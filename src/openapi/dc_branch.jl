@@ -1,0 +1,429 @@
+# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl:1723-1902
+# (make_dcline, read_dcline!, _psse_remote_bus, make_vscline, read_vscline!) and the
+# `interarea_transfer`/`AreaInterchange` block inside `read_bus!` (:481-529).
+#
+# `data["dcline"]` IS a native PowerModels section — `_make_per_unit!` divides its power
+# fields (`pf`/`qf`/`pminf`/`pmaxf`/`qminf`/`qmaxf`/`pmint`/`pmaxt`/`qmint`/`qmaxt`) by
+# `baseMVA`, confirmed empirically: `test/modified_14bus_system.raw`'s one dcline entry
+# shows `qminf = -4.98...` (system pu) alongside a separately-computed, already-natural
+# `reactive_power_limits_from = (min = -498.09..., ...)` — the two differ by exactly
+# `baseMVA = 100`. The LCC-specific fields (`r`, `transfer_setpoint`,
+# `scheduled_dc_voltage`, `rectifier_*`, `inverter_*`, `power_mode`,
+# `switch_mode_voltage`, `compounding_resistance`, `min_compounding_voltage`,
+# `*_transformer_ratio`, `*_tap_*`, `*_delay_angle*`, `*_extinction_angle*`,
+# `*_capacitor_reactance`) are PFFP-invented, PSS/E-native terminology with no PowerModels
+# counterpart, so `_make_per_unit!` never touches them — they arrive already in the
+# natural unit the schema's `NATURAL_UNITS` default expects (ohms, kV, radians, ...),
+# confirmed against the same fixture (`r => 2000.0`, clearly ohms, not pu).
+# `TwoTerminalGenericHVDCLine`/`TwoTerminalLCCLine`'s `base_power` is always the SYSTEM
+# base (D-C convention, like `Line`/`AreaInterchange`), so every native-PM power field
+# this reader converts is multiplied by `sys_mbase`.
+#
+# `data["vscline"]` and `data["interarea_transfer"]` are NOT native PowerModels sections;
+# see the per-maker docstrings below for how PFFP's own `psse.jl` pre-scales their fields.
+
+"""Two-terminal LCC HVDC line (PSS/E). Ported from PSCB's `make_dcline`'s `"pti"` branch
+(:1723-1765)."""
+function make_lcc_line!(
+    sys::OpenAPISystem,
+    reg::IdRegistry,
+    name::AbstractString,
+    d::Dict,
+    from_id::Int,
+    to_id::Int,
+    sys_mbase::Float64,
+)
+    arc_id = add_arc!(sys, from_id, to_id)
+    component = PO.TwoTerminalLCCLine()
+    set_value!(component, :id, register!(reg, "TwoTerminalLCCLine", name))
+    set_value!(component, :name, name)
+    set_value!(component, :available, Bool(d["available"]))
+    set_value!(component, :arc, arc_id)
+    set_value!(component, :active_power_flow, get(d, "pf", 0.0) * sys_mbase, "MW")
+    set_value!(component, :parameter_units, "NATURAL_UNITS")
+    set_value!(component, :r, d["r"], "ohm")
+    set_value!(component, :power_mode, Bool(d["power_mode"]))
+    set_value!(component, :transfer_setpoint, d["transfer_setpoint"],
+        d["power_mode"] ? "MW" : "A")
+    set_value!(component, :dc_voltage_units, "NATURAL_UNITS")
+    set_value!(component, :scheduled_dc_voltage, d["scheduled_dc_voltage"], "kV")
+    set_value!(component, :rectifier_bridges, Int(d["rectifier_bridges"]))
+    set_value!(component, :rectifier_delay_angle_limits, d["rectifier_delay_angle_limits"],
+        "rad")
+    set_value!(component, :rectifier_rc, d["rectifier_rc"], "ohm")
+    set_value!(component, :rectifier_xc, d["rectifier_xc"], "ohm")
+    set_value!(component, :rectifier_base_voltage, d["rectifier_base_voltage"], "kV")
+    set_value!(component, :inverter_bridges, Int(d["inverter_bridges"]))
+    set_value!(component, :inverter_extinction_angle_limits,
+        d["inverter_extinction_angle_limits"], "rad")
+    set_value!(component, :inverter_rc, d["inverter_rc"], "ohm")
+    set_value!(component, :inverter_xc, d["inverter_xc"], "ohm")
+    set_value!(component, :inverter_base_voltage, d["inverter_base_voltage"], "kV")
+    set_value!(component, :switch_mode_voltage, d["switch_mode_voltage"], "kV")
+    set_value!(component, :compounding_resistance, d["compounding_resistance"], "ohm")
+    set_value!(component, :min_compounding_voltage, d["min_compounding_voltage"], "kV")
+    set_value!(component, :rectifier_transformer_ratio, d["rectifier_transformer_ratio"],
+        "1")
+    set_value!(component, :rectifier_tap_setting, d["rectifier_tap_setting"], "1")
+    set_value!(component, :rectifier_tap_limits, d["rectifier_tap_limits"], "1")
+    set_value!(component, :rectifier_tap_step, d["rectifier_tap_step"], "1")
+    set_value!(component, :rectifier_delay_angle, d["rectifier_delay_angle"], "rad")
+    set_value!(component, :rectifier_capacitor_reactance,
+        d["rectifier_capacitor_reactance"],
+        "ohm")
+    set_value!(component, :inverter_transformer_ratio, d["inverter_transformer_ratio"], "1")
+    set_value!(component, :inverter_tap_setting, d["inverter_tap_setting"], "1")
+    set_value!(component, :inverter_tap_limits, d["inverter_tap_limits"], "1")
+    set_value!(component, :inverter_tap_step, d["inverter_tap_step"], "1")
+    set_value!(component, :inverter_extinction_angle, d["inverter_extinction_angle"], "rad")
+    set_value!(component, :inverter_capacitor_reactance, d["inverter_capacitor_reactance"],
+        "ohm")
+    set_value!(
+        component,
+        :loss,
+        PC.InputOutputCurve(;
+            function_data = PC.LinearFunctionData(;
+                proportional_term = d["loss1"],
+                constant_term = d["loss0"],
+            ),
+        ),
+    )
+    set_value!(component, :base_power, sys_mbase, "MVA")
+    add_component!(sys, component)
+    extras = get(d, "ext", Dict{String, Any}())
+    if !isempty(extras)
+        set_ext!(sys, get_value(component, :id), extras)
+    end
+    return
+end
+
+"""Two-terminal generic HVDC line (MATPOWER). Ported from PSCB's `make_dcline`'s
+`"matpower"` branch (:1766-1777)."""
+function make_generic_hvdc_line!(
+    sys::OpenAPISystem,
+    reg::IdRegistry,
+    name::AbstractString,
+    d::Dict,
+    from_id::Int,
+    to_id::Int,
+    sys_mbase::Float64,
+)
+    arc_id = add_arc!(sys, from_id, to_id)
+    component = PO.TwoTerminalGenericHVDCLine()
+    set_value!(component, :id, register!(reg, "TwoTerminalGenericHVDCLine", name))
+    set_value!(component, :name, name)
+    set_value!(component, :available, d["br_status"] == 1)
+    set_value!(component, :active_power_flow, get(d, "pf", 0.0) * sys_mbase, "MW")
+    set_value!(component, :arc, arc_id)
+    set_value!(component, :active_power_limits_from,
+        (min = d["pminf"] * sys_mbase, max = d["pmaxf"] * sys_mbase), "MW")
+    set_value!(component, :active_power_limits_to,
+        (min = d["pmint"] * sys_mbase, max = d["pmaxt"] * sys_mbase), "MW")
+    set_value!(component, :reactive_power_limits_from,
+        (min = d["qminf"] * sys_mbase, max = d["qmaxf"] * sys_mbase), "MVAr")
+    set_value!(component, :reactive_power_limits_to,
+        (min = d["qmint"] * sys_mbase, max = d["qmaxt"] * sys_mbase), "MVAr")
+    set_value!(
+        component,
+        :loss,
+        PC.InputOutputCurve(;
+            function_data = PC.LinearFunctionData(;
+                proportional_term = d["loss1"],
+                constant_term = d["loss0"],
+            ),
+        ),
+    )
+    set_value!(component, :base_power, sys_mbase, "MVA")
+    add_component!(sys, component)
+    return
+end
+
+"""
+Dispatch a `data["dcline"]` entry to `TwoTerminalLCCLine` (PSS/E) or
+`TwoTerminalGenericHVDCLine` (MATPOWER). Ported from PSCB's `make_dcline`'s
+source-type dispatch. This mirrors the oracle's own type choice exactly — the oracle
+never considers whether a PSS/E two-terminal DC line record is *actually* an LCC
+converter versus some other topology; a finer type-selection rule is RECORDED DEBT
+upstream, not something this reader resolves.
+"""
+function make_dcline!(
+    sys::OpenAPISystem,
+    reg::IdRegistry,
+    name::AbstractString,
+    d::Dict,
+    from_id::Int,
+    to_id::Int,
+    source_type::AbstractString,
+    sys_mbase::Float64,
+)
+    if source_type == "pti"
+        make_lcc_line!(sys, reg, name, d, from_id, to_id, sys_mbase)
+    elseif source_type == "matpower"
+        make_generic_hvdc_line!(sys, reg, name, d, from_id, to_id, sys_mbase)
+    else
+        throw(IS.DataFormatError("unsupported source_type=$source_type for dcline data"))
+    end
+    return
+end
+
+"""
+Voltage-source-converter HVDC line (PSS/E `VOLTAGE SOURCE CONVERTER`). Ported from
+PSCB's `make_vscline` (:1820-1874).
+
+Every numeric field PFFP's own `psse.jl` derives from a per-bridge PSS/E record
+(`rating`/`rating_from`/`rating_to`, `active_power_limits_from`/`to`,
+`reactive_power_limits_from`/`to`, `active_power_flow`) is pre-divided by `baseMVA` at
+parse time (confirmed by reading `psse.jl`'s VSC block directly: e.g. `qminf =
+MINQ/baseMVA`), the same system-pu convention as `data["dcline"]`'s native fields, so
+this maker multiplies them back by `sys_mbase` — `TwoTerminalVSCLine.base_power` is the
+system base (same D-C convention as `TwoTerminalGenericHVDCLine`).
+
+`dc_current`("if")/`max_dc_current_from`/`to`/`power_factor_weighting_fraction_from`/`to`
+are already natural (Amperes / a bare fraction) and are passed through unscaled.
+`dc_setpoint_from`/`to` is per-unit on `rated_dc_voltage` when the converter controls DC
+voltage, or on `sys_mbase` when it controls DC power (PFFP's own `psse.jl` comment states
+this explicitly); only the DC_POWER case is reachable here — see the NEEDS_CONTEXT note
+below.
+
+**NEEDS_CONTEXT**: `PowerOperationsOpenAPIModels.jl`'s generated `units.jl` only
+completes the `dc_control_from == "DC_POWER"` / `ac_control_from == "AC_REACTIVE_POWER"`
+branches of `dc_setpoint_from`/`ac_setpoint_from`'s discriminated unit; the
+`DC_VOLTAGE`/`DC_VOLTAGE_DROOP`/`AC_VOLTAGE` branches raise `"no unit declared"` from
+`PC.declared_unit` itself (verified by reading the generated function). A VSC line whose
+`dc_voltage_control_from`/`to` or `ac_voltage_control_from`/`to` PSS/E flag selects
+voltage control therefore cannot be fully emitted today — that is a gap in the generated
+model package, not in this reader; fixing it means regenerating that package, out of this
+repo's scope. This reader still assigns the discriminator fields themselves (never left
+to a default) and lets the natural `PC` error surface for the unsupported branch, rather
+than silently skipping or guessing a value.
+
+No fixture on hand carries a `vscline` entry (`_CONSUMED_PM_SECTIONS` covers the section
+regardless, so an empty one warns about nothing); this maker is exercised by a synthetic
+dict in the test suite, restricted to the DC_POWER/AC_REACTIVE_POWER case the generated
+units machinery actually supports today.
+"""
+function make_vscline!(
+    sys::OpenAPISystem,
+    reg::IdRegistry,
+    name::AbstractString,
+    d::Dict,
+    from_id::Int,
+    to_id::Int,
+    sys_mbase::Float64,
+)
+    arc_id = add_arc!(sys, from_id, to_id)
+    component = PO.TwoTerminalVSCLine()
+    set_value!(component, :id, register!(reg, "TwoTerminalVSCLine", name))
+    set_value!(component, :name, name)
+    set_value!(component, :available, Bool(d["available"]))
+    set_value!(component, :arc, arc_id)
+    set_value!(component, :active_power_flow, get(d, "pf", 0.0) * sys_mbase, "MW")
+    set_value!(component, :rating, d["rating"] * sys_mbase, "MVA")
+    set_value!(component, :active_power_limits_from,
+        (min = d["pminf"] * sys_mbase, max = d["pmaxf"] * sys_mbase), "MW")
+    set_value!(component, :active_power_limits_to,
+        (min = d["pmint"] * sys_mbase, max = d["pmaxt"] * sys_mbase), "MW")
+    set_value!(component, :admittance_units, "NATURAL_UNITS")
+    set_value!(component, :g, iszero(d["r"]) ? 0.0 : 1.0 / d["r"], "S")
+    set_value!(component, :dc_current, get(d, "if", 0.0), "A")
+    set_value!(component, :reactive_power_from, get(d, "qf", 0.0) * sys_mbase, "MVAr")
+    set_value!(component, :dc_control_from,
+        d["dc_voltage_control_from"] ? "DC_VOLTAGE" : "DC_POWER")
+    set_value!(component, :ac_control_from,
+        d["ac_voltage_control_from"] ? "AC_VOLTAGE" : "AC_REACTIVE_POWER")
+    set_value!(component, :dc_setpoint_from, d["dc_setpoint_from"] * sys_mbase,
+        d["dc_voltage_control_from"] ? "kV" : "MW")
+    set_value!(component, :ac_setpoint_from, d["ac_setpoint_from"],
+        d["ac_voltage_control_from"] ? "kV" : "1")
+    set_value!(
+        component,
+        :converter_loss_from,
+        PC.InputOutputCurve(;
+            function_data = PC.LinearFunctionData(;
+                proportional_term = IS.get_proportional_term(d["converter_loss_from"]),
+                constant_term = IS.get_constant_term(d["converter_loss_from"]),
+            ),
+        ),
+    )
+    set_value!(component, :max_dc_current_from, d["max_dc_current_from"], "A")
+    set_value!(component, :rating_from, d["rating_from"] * sys_mbase, "MVA")
+    set_value!(component, :reactive_power_limits_from,
+        (min = d["qminf"] * sys_mbase, max = d["qmaxf"] * sys_mbase), "MVAr")
+    set_value!(component, :power_factor_weighting_fraction_from,
+        d["power_factor_weighting_fraction_from"], "1")
+    set_value!(component, :remote_bus_control_from, _psse_remote_bus(d, "REMOT_FROM"))
+    set_value!(component, :rmpct_from, get(get(d, "ext", Dict()), "RMPCT_FROM", 100.0), "1")
+    set_value!(component, :reactive_power_to, get(d, "qt", 0.0) * sys_mbase, "MVAr")
+    set_value!(component, :dc_control_to,
+        d["dc_voltage_control_to"] ? "DC_VOLTAGE" : "DC_POWER")
+    set_value!(component, :ac_control_to,
+        d["ac_voltage_control_to"] ? "AC_VOLTAGE" : "AC_REACTIVE_POWER")
+    set_value!(component, :dc_setpoint_to, d["dc_setpoint_to"] * sys_mbase,
+        d["dc_voltage_control_to"] ? "kV" : "MW")
+    set_value!(component, :ac_setpoint_to, d["ac_setpoint_to"],
+        d["ac_voltage_control_to"] ? "kV" : "1")
+    set_value!(
+        component,
+        :converter_loss_to,
+        PC.InputOutputCurve(;
+            function_data = PC.LinearFunctionData(;
+                proportional_term = IS.get_proportional_term(d["converter_loss_to"]),
+                constant_term = IS.get_constant_term(d["converter_loss_to"]),
+            ),
+        ),
+    )
+    set_value!(component, :max_dc_current_to, d["max_dc_current_to"], "A")
+    set_value!(component, :rating_to, d["rating_to"] * sys_mbase, "MVA")
+    set_value!(component, :reactive_power_limits_to,
+        (min = d["qmint"] * sys_mbase, max = d["qmaxt"] * sys_mbase), "MVAr")
+    set_value!(component, :power_factor_weighting_fraction_to,
+        d["power_factor_weighting_fraction_to"], "1")
+    set_value!(component, :remote_bus_control_to, _psse_remote_bus(d, "REMOT_TO"))
+    set_value!(component, :rmpct_to, get(get(d, "ext", Dict()), "RMPCT_TO", 100.0), "1")
+    set_value!(component, :rated_dc_voltage, d["rated_dc_voltage"], "kV")
+    add_component!(sys, component)
+    extras = get(d, "ext", Dict{String, Any}())
+    if !isempty(extras)
+        set_ext!(sys, get_value(component, :id), extras)
+    end
+    return
+end
+
+"""PSS/E encodes "no remote regulated bus" as `REMOT = 0`; the schema's
+`remote_bus_control_*` is nullable with a valid range `>= 1` and spells local-terminal-bus
+regulation as `nothing`. Ported from PSCB's `_psse_remote_bus`."""
+function _psse_remote_bus(d::Dict, key::AbstractString)
+    remote_bus = get(get(d, "ext", Dict()), key, 0)
+    return iszero(remote_bus) ? nothing : remote_bus
+end
+
+"""
+Create one `TwoTerminalLCCLine`/`TwoTerminalGenericHVDCLine` per `data["dcline"]` entry.
+Ported from PSCB's `read_dcline!` (:1783-1806).
+"""
+function read_dc_lines!(sys::OpenAPISystem, data::Dict; kwargs...)
+    if !haskey(data, "dcline")
+        return
+    end
+    reg = get_registry(sys)
+    sys_mbase = get_base_power(sys)
+    source_type = data["source_type"]
+    bus_lookup = _pm_bus_lookup(sys)
+    _get_name = get(kwargs, :dcline_name_formatter, _get_pm_branch_name)
+
+    for (d_key, d) in _sorted_pm_entries(data["dcline"])
+        d["name"] = get(d, "name", string(d_key))
+        from_number, to_number = Int(d["f_bus"]), Int(d["t_bus"])
+        from_id = get_bus_id(reg, from_number)
+        to_id = get_bus_id(reg, to_number)
+        name = String(_get_name(d, bus_lookup[from_number][1], bus_lookup[to_number][1]))
+        make_dcline!(sys, reg, name, d, from_id, to_id, source_type, sys_mbase)
+    end
+    return
+end
+
+"""
+Create one `TwoTerminalVSCLine` per `data["vscline"]` entry. Ported from PSCB's
+`read_vscline!` (:1876-1902), including the undefined-bus warn-and-skip (a real, already
+logged skip in the oracle, ported as-is — not one of this reader's own silent skips).
+"""
+function read_vsc_lines!(sys::OpenAPISystem, data::Dict; kwargs...)
+    if !haskey(data, "vscline")
+        return
+    end
+    reg = get_registry(sys)
+    sys_mbase = get_base_power(sys)
+    bus_lookup = _pm_bus_lookup(sys)
+    _get_name = get(kwargs, :vsc_line_name_formatter, _get_pm_branch_name)
+
+    for (d_key, d) in _sorted_pm_entries(data["vscline"])
+        d["name"] = get(d, "name", string(d_key))
+        from_number, to_number = Int(d["f_bus"]), Int(d["t_bus"])
+        if !haskey(bus_lookup, from_number) || !haskey(bus_lookup, to_number)
+            @warn "VSC line $d_key references undefined bus(es) (from = $from_number, to = $to_number); skipping"
+            continue
+        end
+        from_id = get_bus_id(reg, from_number)
+        to_id = get_bus_id(reg, to_number)
+        name = String(_get_name(d, bus_lookup[from_number][1], bus_lookup[to_number][1]))
+        make_vscline!(sys, reg, name, d, from_id, to_id, sys_mbase)
+    end
+    return
+end
+
+"""
+Create one `AreaInterchange` per `data["interarea_transfer"]` entry. Ported from the
+`interarea_transfer` block inside PSCB's `read_bus!` (:481-529) — grouped here with the
+other DC/interchange readers rather than with `topology.jl`'s bus reader, since it is not
+a topology fact (13a's own scope excluded it as "branch-adjacent").
+
+# Bug-compatible with PSCB power_models_data.jl:509 (D5 #4) — `active_power_flow =
+d["power_transfer"]` assigns PFFP's raw `PTRAN` value (already natural MW; `psse.jl`'s
+`_psse2pm_interarea_transfer!` copies it verbatim, and `interarea_transfer` is not a
+native PowerModels section so `_make_per_unit!` never touches it either) directly into a
+field PSY declares `SU` (system-base pu; `display_units_arg(get_active_power_flow,
+AreaInterchange) == PSY.SU`) with no division by `sys_mbase` first. A real
+`get_active_power_flow(interchange, PSY.NU)` call on the oracle's own object therefore
+multiplies that already-natural number by `sys_mbase` a second time. This reader
+reproduces exactly that inflated value (`d["power_transfer"] * sys_mbase`) rather than
+the physically correct `d["power_transfer"]` alone. Fix tracked upstream; not fixed here.
+
+`flow_limits` mirrors the oracle's own hardcoded `(from_to = -INFINITE_BOUND, to_from =
+INFINITE_BOUND)` sentinel verbatim (no scaling applied by the oracle either, since it is
+not derived from any pm field).
+"""
+function read_area_interchanges!(sys::OpenAPISystem, data::Dict; kwargs...)
+    if data["source_type"] != "pti" || !haskey(data, "interarea_transfer")
+        return
+    end
+    reg = get_registry(sys)
+    sys_mbase = get_base_power(sys)
+    _get_area_name = get(kwargs, :area_name_formatter, string)
+
+    for (k, d) in _sorted_pm_entries(data["interarea_transfer"])
+        area_from_name = _get_area_name(d["area_from"])
+        area_to_name = _get_area_name(d["area_to"])
+        transfer_id = get(d, "transfer_id", "1")
+        if !has_id(reg, "Area", area_from_name) || !has_id(reg, "Area", area_to_name)
+            missing_areas = join(
+                filter(
+                    !isnothing,
+                    [
+                        !has_id(reg, "Area", area_from_name) ? area_from_name : nothing,
+                        !has_id(reg, "Area", area_to_name) ? area_to_name : nothing,
+                    ],
+                ),
+                ", ",
+            )
+            @warn "Inter-area transfer record $k references undefined area(s) $missing_areas; skipping AreaInterchange"
+            continue
+        end
+        name = "$(area_from_name)_$(area_to_name)_$(transfer_id)"
+
+        component = PO.AreaInterchange()
+        set_value!(component, :id, register!(reg, "AreaInterchange", name))
+        set_value!(component, :name, name)
+        set_value!(component, :available, true)
+        # Bug-compatible with PSCB power_models_data.jl:509 (D5 #4) — see docstring.
+        set_value!(component, :active_power_flow, d["power_transfer"] * sys_mbase, "MW")
+        set_value!(component, :from_area, get_id(reg, "Area", area_from_name))
+        set_value!(component, :to_area, get_id(reg, "Area", area_to_name))
+        set_value!(component, :flow_limits,
+            (from_to = -INFINITE_BOUND, to_from = INFINITE_BOUND), "MW")
+        set_value!(component, :base_power, sys_mbase, "MVA")
+        add_component!(sys, component)
+    end
+    return
+end
+
+"""
+Assemble every DC-branch-adjacent reader for the "dc_branch" stage: `TwoTerminalLCCLine`/
+`TwoTerminalGenericHVDCLine` (`data["dcline"]`), `TwoTerminalVSCLine` (`data["vscline"]`),
+and `AreaInterchange` (`data["interarea_transfer"]`).
+"""
+function read_dc_branches!(sys::OpenAPISystem, data::Dict; kwargs...)
+    read_dc_lines!(sys, data; kwargs...)
+    read_vsc_lines!(sys, data; kwargs...)
+    read_area_interchanges!(sys, data; kwargs...)
+    return
+end
