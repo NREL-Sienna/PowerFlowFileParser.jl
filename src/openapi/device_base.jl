@@ -13,27 +13,21 @@
 # so that PowerSystems' `DeviceBaseUnit` importer reading this document's numbers directly
 # reproduces the same System a `NATURAL_UNITS` document produces through `NaturalUnit`.
 #
-# ── Field classification ─────────────────────────────────────────────────────────
+# ── Field classification, mechanical path ───────────────────────────────────────
 #
-# A field is converted when, mechanically:
+# A field converts when, mechanically:
 #   - it declares a unit (`PC.has_declared_unit`);
 #   - that unit is not relative to a sibling field (`!PC.has_unit_base` — e.g.
 #     `ACBus.magnitude` is already pu on `base_voltage` regardless of document unit
 #     system, so it is untouched here);
 #   - its Type-level (not instance-level) `PC.declared_unit`/`PC.declared_quantity`
-#     resolve without error. A field whose unit depends on a runtime discriminator field
-#     (`TransformerCircuit.r`'s `parameter_units`, `FACTSControlDevice.voltage_setpoint`'s
-#     `voltage_setpoint_units`, `TwoTerminalLCCLine`'s several `parameter_units`/
-#     `dc_voltage_units` fields, `SwitchedAdmittance.Y`'s `admittance_units`, ...) only
-#     defines the instance-level method, so the Type-level call falls through to
-#     `PowerCoreOpenAPIModels`'s generic error stub — that governs its own convention
-#     independent of the document's, and PowerSystems' own converters confirm it: identical
-#     between `DeviceBaseUnit` and `NaturalUnit` in every case checked (`export_handwritten.jl`);
+#     resolve without error (`_has_fixed_declared_unit`) — see the next section for what
+#     happens when they do not;
 #   - that unit's quantity is power-family (`ActivePower`/`ReactivePower`/`ApparentPower`/
 #     `ActivePowerChangeRate` — a generator/storage `ramp_limits` in MW/min is scaled by
 #     device base exactly like its MW siblings in every PowerSystems converter checked).
 #
-# Two cases this mechanical rule cannot see, found by diffing PowerSystems'
+# Two cases the mechanical rule cannot see, found by diffing PowerSystems'
 # `to_openapi(..., ::DeviceBaseUnit)` against `::NaturalUnit)` field-by-field in
 # `export_handwritten.jl`:
 #   - `Area`/`LoadZone.peak_active_power`/`peak_reactive_power` (and
@@ -49,8 +43,39 @@
 #     this package's readers today; the reserve types are listed defensively in case a
 #     future reader adds them).
 #
-# Anything else that reaches `_devicebase_own_base`'s error is a real gap — a component
-# field this pass has not been taught to classify — not a value to skip.
+# ── Field classification, instance-dispatched path ──────────────────────────────
+#
+# A field whose Type-level `declared_unit`/`declared_quantity` throws depends on a runtime
+# discriminator sibling (`parameter_units`, `admittance_units`, `energy_units`,
+# `voltage_setpoint_units`, `dc_voltage_units`, `power_mode`, ...). That discriminator is
+# used for two semantically different things in this schema, and conflating them is a bug
+# (found in review — `EnergyReservoirStorage.storage_capacity` fell through unconverted and
+# unflagged under the original single-bucket "instance-dispatched => skip" rule):
+#
+#   1. A **representation switch** between per-unit and natural for the SAME field
+#      (`parameter_units`/`admittance_units`/`voltage_setpoint_units`/`dc_voltage_units`
+#      choosing between e.g. "pu" and "ohm"/"kV"). Every reader in this package writes a
+#      FIXED value for these discriminators, independent of the document's `unit_system` —
+#      confirmed by grepping every `set_value!(_, :*_units, ...)` call in this directory —
+#      so the field's own representation never depends on the document convention either,
+#      and PowerSystems' own converters confirm it is identical between `DeviceBaseUnit`/
+#      `NaturalUnit` in every case checked. These are `:skip`.
+#   2. A **natural-unit choice** among sibling units of the SAME quantity
+#      (`EnergyReservoirStorage.energy_units`: "MWH" vs "MWMIN", both genuine energy units)
+#      or, in one case, a **quantity switch** between two physically different quantities
+#      (`TwoTerminalLCCLine.power_mode` selects `transfer_setpoint`'s unit between MW
+#      (`ActivePower`) and A (`CurrentFlow`)). Neither is a pu-vs-natural switch, so neither
+#      is exempt from document-level conversion on that basis. PowerSystems' own converter
+#      divides `storage_capacity` by device `base_power` exactly like every other
+#      `:mva`-tagged field regardless of which (implemented) `energy_units` branch is active
+#      (`export_handwritten.jl`'s `EnergyReservoirStorage` section) — these are
+#      `:convert_own` (or, for the quantity-switch case, resolved dynamically per component).
+#
+# `_DEVICEBASE_INSTANCE_DISPATCHED` is the explicit registry every instance-dispatched
+# `(key, prop)` this package's readers can produce must appear in, classified as one of the
+# above. A pair that reaches the registry lookup and is NOT listed is a real gap — a field
+# this pass has not been taught to classify — and errors by construction
+# (`_devicebase_instance_dispatched`): falling through silently is not possible.
 
 const _DEVICEBASE_POWER_QUANTITIES =
     ("ActivePower", "ReactivePower", "ApparentPower", "ActivePowerChangeRate")
@@ -66,6 +91,66 @@ const _DEVICEBASE_FIXED_NATURAL = Set{Tuple{String, Symbol}}([
 const _DEVICEBASE_SYSTEM_BASE_TYPES =
     Set(["FACTSControlDevice", "OnlineReserve", "OfflineReserve", "GroupReserve"])
 
+const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
+    # parameter_units/admittance_units/voltage_setpoint_units always "DEVICE_BASE"
+    # (branch.jl, shunt.jl) -- pu on the component's own base_power (or, for the shunt
+    # admittance fields, DEVICE_MVAR, see below) already, identical in both document
+    # conventions.
+    ("TransformerCircuit", :r) => :skip,
+    ("TransformerCircuit", :x) => :skip,
+    ("ThreeWindingTransformer", :r_12) => :skip,
+    ("ThreeWindingTransformer", :x_12) => :skip,
+    ("ThreeWindingTransformer", :r_23) => :skip,
+    ("ThreeWindingTransformer", :x_23) => :skip,
+    ("ThreeWindingTransformer", :r_31) => :skip,
+    ("ThreeWindingTransformer", :x_31) => :skip,
+    ("TwoWindingTransformer", :magnetizing_shunt) => :skip,
+    ("ThreeWindingTransformer", :magnetizing_shunt) => :skip,
+    ("FACTSControlDevice", :voltage_setpoint) => :skip,
+    # control_objective governs both of TransformerCircuit's own control fields, but the
+    # two do not classify the same way. `control_limits` resolves to Dimensionless ("1")
+    # or Angle ("rad") on EVERY control_objective branch (checked against every enum value
+    # in the schema, not just this fixture's "FIXED") -- never power-family, so a single
+    # static verdict is correct and safe regardless of which branch a future producer hits.
+    ("TransformerCircuit", :control_limits) => :skip,
+    # `controlled_quantity_limits` genuinely switches quantity with control_objective
+    # (Voltage/pu for VOLTAGE-family objectives, MW/MVAr for ACTIVE_POWER_FLOW/
+    # REACTIVE_POWER_FLOW/CONTROL_OF_DC_LINE-family objectives) -- resolved per component.
+    ("TransformerCircuit", :controlled_quantity_limits) => :dynamic,
+    # admittance_units always "DEVICE_MVAR" (shunt.jl) -- PowerSystems' own to_openapi
+    # confirms this is fixed-natural, multiplied by the SYSTEM base in both document
+    # conventions (export_handwritten.jl's FixedAdmittance section), not document-unit-
+    # system-governed at all (same shape as Area/LoadZone's peak fields).
+    ("FixedAdmittance", :Y) => :skip,
+    ("SwitchedAdmittance", :Y) => :skip,
+    ("SwitchedAdmittance", :Y_increase) => :skip,
+    ("SwitchedAdmittance", :admittance_limits) => :skip,
+    # parameter_units/dc_voltage_units/admittance_units always "NATURAL_UNITS" for the
+    # PSS/E-native LCC/VSC fields (dc_branch.jl) -- fixed ohm/kV/S regardless of the
+    # document's unit_system, the mirror image of the DEVICE_BASE cases above.
+    ("TwoTerminalLCCLine", :r) => :skip,
+    ("TwoTerminalLCCLine", :rectifier_rc) => :skip,
+    ("TwoTerminalLCCLine", :rectifier_xc) => :skip,
+    ("TwoTerminalLCCLine", :inverter_rc) => :skip,
+    ("TwoTerminalLCCLine", :inverter_xc) => :skip,
+    ("TwoTerminalLCCLine", :compounding_resistance) => :skip,
+    ("TwoTerminalLCCLine", :rectifier_capacitor_reactance) => :skip,
+    ("TwoTerminalLCCLine", :inverter_capacitor_reactance) => :skip,
+    ("TwoTerminalLCCLine", :scheduled_dc_voltage) => :skip,
+    ("TwoTerminalLCCLine", :switch_mode_voltage) => :skip,
+    ("TwoTerminalLCCLine", :min_compounding_voltage) => :skip,
+    ("TwoTerminalVSCLine", :g) => :skip,
+    # energy_units is a NATURAL-UNIT CHOICE (MWh vs MWmin), not a pu-vs-natural
+    # representation switch: both branches are genuine energy quantities, and PSY's own
+    # converter divides storage_capacity by device base_power regardless of which
+    # (implemented) branch is active. THE bug this fix round closed.
+    ("EnergyReservoirStorage", :storage_capacity) => :convert_own,
+    # power_mode selects between two DIFFERENT PHYSICAL QUANTITIES (ActivePower vs
+    # CurrentFlow), not two representations of the same one -- resolved per component from
+    # the instance-level quantity, not statically here.
+    ("TwoTerminalLCCLine", :transfer_setpoint) => :dynamic,
+)
+
 """Whether `T.prop`'s declared unit is fixed — resolvable from the Type alone, rather than
 depending on a runtime discriminator field only the instance-level method reads."""
 function _has_fixed_declared_unit(::Type{T}, prop::Symbol) where {T}
@@ -79,9 +164,77 @@ function _has_fixed_declared_unit(::Type{T}, prop::Symbol) where {T}
 end
 
 """
+Classification for a `key.prop` whose Type-level declared unit is NOT fixed (an
+instance-level discriminator governs it) — `_DEVICEBASE_INSTANCE_DISPATCHED` lookup, erroring
+by name when the pair is not registered rather than silently skipping it. See this file's
+header for the two kinds of discriminator and why they classify differently.
+"""
+function _devicebase_instance_dispatched(key::AbstractString, prop::Symbol)
+    verdict = get(_DEVICEBASE_INSTANCE_DISPATCHED, (String(key), prop), nothing)
+    if verdict === nothing
+        error(
+            "DEVICE_BASE conversion: $key.$prop has an instance-level unit discriminator " *
+            "not accounted for in _DEVICEBASE_INSTANCE_DISPATCHED — classify it as " *
+            ":convert_own, :skip, or :dynamic (see device_base.jl's header) before " *
+            "building a DEVICE_BASE document containing this type",
+        )
+    end
+    return verdict
+end
+
+"""
+Per-`(key, prop)` map from a `:dynamic` field's resolved instance-level *quantity* to its
+verdict — every quantity the field's discriminator can ever produce must be listed
+(checked against every enum value in the schema, not just what a given fixture exercises),
+or [`_devicebase_dynamic`](@ref) errors naming the unexpected quantity rather than guessing.
+
+  - `TwoTerminalLCCLine.transfer_setpoint` (`power_mode`): `ActivePower` (MW, converts like
+    every sibling power field) or `CurrentFlow` (A — no power-base conversion is defined for
+    a current quantity anywhere in this schema).
+  - `TransformerCircuit.controlled_quantity_limits` (`control_objective`): `Voltage` (pu
+    already, one of `TransformerCircuit`'s VOLTAGE-family objectives) or `ActivePower`/
+    `ReactivePower` (MW/MVAr, one of the ACTIVE_POWER_FLOW/REACTIVE_POWER_FLOW/
+    CONTROL_OF_DC_LINE-family objectives — converts by the circuit's own `base_power`,
+    exactly like its sibling `active_power_flow`/`reactive_power_flow`).
+"""
+const _DEVICEBASE_DYNAMIC_QUANTITIES = Dict{Tuple{String, Symbol}, Dict{String, Symbol}}(
+    ("TwoTerminalLCCLine", :transfer_setpoint) => Dict(
+        "ActivePower" => :convert_own,
+        "CurrentFlow" => :skip,
+    ),
+    ("TransformerCircuit", :controlled_quantity_limits) => Dict(
+        "Voltage" => :skip,
+        "ActivePower" => :convert_own,
+        "ReactivePower" => :convert_own,
+    ),
+)
+
+"""Resolve a `:dynamic` verdict for one component `po`, from its own instance-level
+quantity, via `_DEVICEBASE_DYNAMIC_QUANTITIES`."""
+function _devicebase_dynamic(key::AbstractString, prop::Symbol, po)
+    quantities = get(_DEVICEBASE_DYNAMIC_QUANTITIES, (key, prop), nothing)
+    if quantities === nothing
+        error(
+            "DEVICE_BASE conversion: $key.$prop is registered :dynamic with no entry in " *
+            "_DEVICEBASE_DYNAMIC_QUANTITIES",
+        )
+    end
+    quantity = PC.declared_quantity(po, Val(prop))
+    verdict = get(quantities, quantity, nothing)
+    if verdict === nothing
+        error(
+            "DEVICE_BASE conversion: $key.$prop resolved quantity \"$quantity\", not " *
+            "accounted for in _DEVICEBASE_DYNAMIC_QUANTITIES[($key, :$prop)]",
+        )
+    end
+    return verdict
+end
+
+"""
 Classify `key.prop` (PO type `T`) for the DEVICE_BASE pass: `:convert_own` (divide by the
-component's own `base_power`), `:convert_system` (divide by the document's system base), or
-`:skip`. See this file's header for the full rule.
+component's own `base_power`), `:convert_system` (divide by the document's system base),
+`:dynamic` (resolved per component by [`_devicebase_dynamic`](@ref)), or `:skip`. See this
+file's header for the full rule.
 """
 function _devicebase_classification(::Type{T}, key::AbstractString, prop::Symbol) where {T}
     # `base_power`/`base_power_12`/`base_power_23`/`base_power_31`: anchors themselves
@@ -93,7 +246,7 @@ function _devicebase_classification(::Type{T}, key::AbstractString, prop::Symbol
         return :skip
     end
     if !_has_fixed_declared_unit(T, prop)
-        return :skip
+        return _devicebase_instance_dispatched(key, prop)
     end
     if !(PC.declared_quantity(T, Val(prop)) in _DEVICEBASE_POWER_QUANTITIES)
         return :skip
@@ -138,7 +291,7 @@ end
 Convert every power-family field [`build_openapi_system`](@ref)'s readers wrote in natural
 units into per-unit-on-device-base, in place, when `sys`'s document is
 `unit_system = "DEVICE_BASE"`. A no-op for `"NATURAL_UNITS"`. See this file's header for the
-field-classification rule and its two hand-diffed exceptions.
+field-classification rule and its exceptions.
 """
 function apply_device_base_conversion!(sys::OpenAPISystem)
     doc = get_document(sys)
@@ -154,7 +307,13 @@ function apply_device_base_conversion!(sys::OpenAPISystem)
             classification = _devicebase_classification(T, key, prop)
             classification === :skip && continue
             for po in components
-                base = if classification === :convert_system
+                resolved = if classification === :dynamic
+                    _devicebase_dynamic(key, prop, po)
+                else
+                    classification
+                end
+                resolved === :skip && continue
+                base = if resolved === :convert_system
                     system_base
                 else
                     _devicebase_own_base(po, key, prop)
