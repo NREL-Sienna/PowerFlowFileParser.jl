@@ -318,6 +318,69 @@ end
     @test PFP.get_value(storage, :storage_technology_type) == "OTHER_CHEM"
 end
 
+@testset "EnergyReservoirStorage fields are per-unit-on-own-thermal_rating under DEVICE_BASE, device base != system base" begin
+    # Regression for the CRITICAL review finding: storage_capacity's quantity
+    # (ElectricalEnergy) is only resolvable through `energy_units`' instance-level
+    # discriminator, which the first cut of the DEVICE_BASE pass treated as "leave
+    # untouched" for every instance-dispatched field -- silently skipping conversion
+    # instead of erroring, with no test to catch it. `own base_power` here is
+    # `thermal_rating` (PSCB's bug-compatible battery convention, same as the
+    # "Bug-compatible" testset above); sys_mbase = 100, thermal_rating = 50, so the two
+    # bases genuinely differ and every quotient below is *not* 1.
+    #
+    # NATURAL_UNITS (`_natural_value(v, thermal_rating) = v * thermal_rating`, per
+    # `make_storage!` above):
+    #   storage_capacity = energy_rating * thermal_rating = 8.0 * 50.0 = 400.0
+    #   rating            = thermal_rating * thermal_rating = 50.0 * 50.0 = 2500.0
+    #   active_power      = ps * thermal_rating = 0.6 * 50.0 = 30.0
+    #   input/output_active_power_limits.max = charge/discharge_rating * thermal_rating
+    #   reactive_power    = qs * thermal_rating = 0.1 * 50.0 = 5.0
+    #   reactive_power_limits = (qmin, qmax) .* thermal_rating
+    # DEVICE_BASE divides every one of those back by the SAME thermal_rating = 50.0,
+    # collapsing each to the raw un-multiplied input value.
+    sys = PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE")
+    reg = PFP.get_registry(sys)
+    bus = _register_test_bus!(sys)
+    d = Dict{String, Any}(
+        "energy_rating" => 8.0, "energy" => 4.0, "status" => true,
+        "thermal_rating" => 50.0, "ps" => 0.6, "charge_rating" => 0.3,
+        "discharge_rating" => 0.4, "charge_efficiency" => 0.9,
+        "discharge_efficiency" => 0.85, "qs" => 0.1, "qmin" => -0.2, "qmax" => 0.2,
+    )
+    PFP.make_storage!(sys, reg, bus, d, "bat1", 100.0)
+    PFP.apply_device_base_conversion!(sys)
+    storage = only(PFP.get_components(sys, "EnergyReservoirStorage"))
+    @test PFP.get_value(storage, :base_power) == 50.0
+    @test PFP.get_value(storage, :storage_capacity) ≈ d["energy_rating"]
+    @test PFP.get_value(storage, :rating) ≈ d["thermal_rating"]
+    @test PFP.get_value(storage, :active_power) ≈ d["ps"]
+    @test PFP.get_value(storage, :input_active_power_limits).min == 0.0
+    @test PFP.get_value(storage, :input_active_power_limits).max ≈ d["charge_rating"]
+    @test PFP.get_value(storage, :output_active_power_limits).min == 0.0
+    @test PFP.get_value(storage, :output_active_power_limits).max ≈ d["discharge_rating"]
+    @test PFP.get_value(storage, :reactive_power) ≈ d["qs"]
+    @test PFP.get_value(storage, :reactive_power_limits).min ≈ d["qmin"]
+    @test PFP.get_value(storage, :reactive_power_limits).max ≈ d["qmax"]
+    # Dimensionless / ratio fields: untouched by DEVICE_BASE either way.
+    @test PFP.get_value(storage, :initial_storage_capacity_level) == 0.5
+end
+
+@testset "DEVICE_BASE conversion errors loudly on an unregistered instance-dispatched field" begin
+    # Pins the structural guarantee the CRITICAL review finding was about: an
+    # instance-level-discriminated field with no verdict in
+    # `_DEVICEBASE_INSTANCE_DISPATCHED` must error, not silently fall through unconverted.
+    # `TwoTerminalVSCLine.dc_setpoint_from` (governed by `dc_control_from`) is real and
+    # instance-dispatched today but deliberately not registered -- this package's readers
+    # never reach a document containing it without first hitting the recorded VSC
+    # voltage-control gap (`_vsc_voltage_control_unsupported`), so it is exactly the kind
+    # of "not yet classified" field the guard exists for.
+    @test_throws ErrorException PFP._devicebase_classification(
+        PFP.PO.TwoTerminalVSCLine,
+        "TwoTerminalVSCLine",
+        :dc_setpoint_from,
+    )
+end
+
 @testset "read_generation! on case5_strg.m builds real EnergyReservoirStorage entries" begin
     pm = PFP.PowerModelsData(joinpath(MATPOWER_DIR, "case5_strg.m"))
     sys = PFP.build_openapi_system(pm)
