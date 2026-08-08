@@ -52,6 +52,7 @@ include("openapi/switch_breaker.jl")
 include("openapi/dc_branch.jl")
 include("openapi/shunt.jl")
 include("openapi/attributes.jl")
+include("openapi/device_base.jl")
 include("openapi/build.jl")
 
 #################################################################################

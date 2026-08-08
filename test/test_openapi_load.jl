@@ -35,6 +35,29 @@ end
     end
 end
 
+@testset "StandardLoad fields are per-unit-on-device-base under DEVICE_BASE" begin
+    # A StandardLoad's own `base_power` is always the system base (read_loads! has no
+    # per-load mbase concept -- unlike a generator's `mbase`), so DEVICE_BASE's
+    # natural_MW / base_power collapses to (raw_pu * base_power) / base_power == raw_pu:
+    # the document should carry PowerModels' own system-per-unit numbers back verbatim.
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data(); unit_system = "DEVICE_BASE")
+    data = fourteen_bus_pm_data().data
+    for load in PFP.get_components(sys, "StandardLoad")
+        name = PFP.get_value(load, :name)
+        d = only(
+            v for v in values(data["load"]) if
+            strip(join(v["source_id"])) == name
+        )
+        @test PFP.get_value(load, :constant_active_power) ≈ d["pd"]
+        @test PFP.get_value(load, :constant_reactive_power) ≈ d["qd"]
+        @test PFP.get_value(load, :current_active_power) ≈ d["pi"]
+        @test PFP.get_value(load, :current_reactive_power) ≈ d["qi"]
+        @test PFP.get_value(load, :impedance_active_power) ≈ d["py"]
+        @test PFP.get_value(load, :impedance_reactive_power) ≈ d["qy"]
+        @test PFP.get_value(load, :base_power) == PFP.get_base_power(sys)
+    end
+end
+
 @testset "_conformity_string maps PSCB's LoadConformity codes" begin
     @test PFP._conformity_string(0) == "NON_CONFORMING"
     @test PFP._conformity_string(1) == "CONFORMING"
