@@ -9,6 +9,7 @@ export PowerModelsData
 export parse_file
 export OpenAPISystem
 export to_json
+export build_openapi_system
 
 #################################################################################
 # Imports
@@ -38,10 +39,12 @@ include("definitions.jl")
 include("power_models_data.jl")
 include("im_io.jl")
 include("pm_io.jl")
-include("openapi/identity.jl")
 include("openapi/units.jl")
+include("openapi/identity.jl")
 include("openapi/container.jl")
 include("openapi/serialize.jl")
+include("openapi/topology.jl")
+include("openapi/build.jl")
 
 #################################################################################
 

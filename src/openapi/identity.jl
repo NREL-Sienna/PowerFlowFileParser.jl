@@ -1,26 +1,31 @@
 """
-Allocates component ids and resolves the cross-references found in tabular data.
+Allocates component ids and resolves the cross-references found in a PowerModels dict.
 
-The schemas link components by integer id, but the tables link them three other
-ways: by bus number (`branch.csv` `From Bus`), by component name (`gen.csv`
-`GEN UID`), and by area or zone name. This translates all three.
+The schemas link components by integer id, but the pm dict links them other ways: by
+bus number (`branch["f_bus"]`), by component name, and by area or zone number. This
+translates those.
 
-Ids come from a single counter shared by every type, matching GridDB's `entities`
-table where an id identifies a component without also needing its type. This is
-why a bus number cannot double as an id.
+Ids come from a single counter shared by every type, matching GridDB's `entities` table
+where an id identifies a component without also needing its type. This is why a bus
+number cannot double as an id.
 
-Not serialized: every field is recoverable from the emitted document.
+The counter itself lives on `document`: `PC.SystemDocument` owns id allocation for the
+document it produces, so this registry delegates every id it hands out rather than
+keeping a second counter that could drift from the document's.
+
+Not serialized: every field but `document` is recoverable from the emitted document,
+and `document` is serialized on its own terms.
 """
 struct IdRegistry
-    counter::Base.RefValue{Int}
+    document::PC.SystemDocument
     by_name::Dict{Tuple{String, String}, Int}
     by_bus_number::Dict{Int, Int}
     arcs::Dict{Tuple{Int, Int}, Int}
 end
 
-function IdRegistry()
+function IdRegistry(document::PC.SystemDocument)
     return IdRegistry(
-        Ref(0),
+        document,
         Dict{Tuple{String, String}, Int}(),
         Dict{Int, Int}(),
         Dict{Tuple{Int, Int}, Int}(),
@@ -28,10 +33,9 @@ function IdRegistry()
 end
 
 """Allocate an id without associating it with a name. For types the schemas give
-no `name` field, such as `TransformerCircuit`."""
+no `name` field, such as `Arc`."""
 function next_id!(reg::IdRegistry)
-    reg.counter[] += 1
-    return reg.counter[]
+    return PC.next_id!(reg.document)
 end
 
 """Allocate an id for `name` within `type_name`. Throws if that pair is taken."""
@@ -49,7 +53,7 @@ function register!(reg::IdRegistry, type_name::AbstractString, name::AbstractStr
     return id
 end
 
-"""Register a bus under both its name and its table bus number."""
+"""Register a bus under both its name and its pm dict bus number."""
 function register_bus!(reg::IdRegistry, number::Int, name::AbstractString)
     if haskey(reg.by_bus_number, number)
         throw(
@@ -87,8 +91,8 @@ end
 """
 Return the id of the arc between two buses and whether it was created here.
 
-Keyed on the ordered pair so parallel circuits share one `Arc`: RTS-GMLC has 12
-bus pairs carrying two circuits each.
+Keyed on the ordered pair so parallel circuits share one `Arc`: PSS/E allows several
+`CKT`s on the same bus pair.
 """
 function arc_id!(reg::IdRegistry, from_id::Int, to_id::Int)
     key = (from_id, to_id)
@@ -103,9 +107,8 @@ end
 """
 Resolve a bare name to `(type_name, id)`, searching only `type_names`.
 
-Time series pointers identify their owner by name and by a category such as
-`"Generator"`. A name alone is not unique: RTS aliases the zone column to the
-area column, so "1", "2" and "3" each name both an `Area` and a `LoadZone`.
+A name alone is not unique across every component type: an area and a load zone can
+share the same pm dict number, and PSS/E allows a bus and a load to share a name.
 """
 function find_by_name(reg::IdRegistry, type_names, name::AbstractString)
     matches = Tuple{String, Int}[]
