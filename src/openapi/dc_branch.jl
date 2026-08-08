@@ -191,25 +191,28 @@ system base (same D-C convention as `TwoTerminalGenericHVDCLine`).
 are already natural (Amperes / a bare fraction) and are passed through unscaled.
 `dc_setpoint_from`/`to` is per-unit on `rated_dc_voltage` when the converter controls DC
 voltage, or on `sys_mbase` when it controls DC power (PFFP's own `psse.jl` comment states
-this explicitly); only the DC_POWER case is reachable here — see the NEEDS_CONTEXT note
-below.
+this explicitly).
 
-**NEEDS_CONTEXT**: `PowerOperationsOpenAPIModels.jl`'s generated `units.jl` only
-completes the `dc_control_from == "DC_POWER"` / `ac_control_from == "AC_REACTIVE_POWER"`
-branches of `dc_setpoint_from`/`ac_setpoint_from`'s discriminated unit; the
-`DC_VOLTAGE`/`DC_VOLTAGE_DROOP`/`AC_VOLTAGE` branches raise `"no unit declared"` from
-`PC.declared_unit` itself (verified by reading the generated function). A VSC line whose
-`dc_voltage_control_from`/`to` or `ac_voltage_control_from`/`to` PSS/E flag selects
-voltage control therefore cannot be fully emitted today — that is a gap in the generated
-model package, not in this reader; fixing it means regenerating that package, out of this
-repo's scope. This reader still assigns the discriminator fields themselves (never left
-to a default) and lets the natural `PC` error surface for the unsupported branch, rather
-than silently skipping or guessing a value.
+**RECORDED GAP**: `PowerOperationsOpenAPIModels.jl`'s generated `units.jl` used to raise
+`"no unit declared"` from `PC.declared_unit` for the `DC_VOLTAGE`/`DC_VOLTAGE_DROOP`/
+`AC_VOLTAGE` branches of `dc_setpoint_from`/`ac_setpoint_from`; that codegen gap is now
+closed (the emitter resolves the schema's nested `voltage_units` discriminator), so those
+branches no longer error. This reader has not been updated to use them correctly, though:
+it hardcodes `set_value!(..., "kV")` for the DC_VOLTAGE/AC_VOLTAGE branches below regardless
+of `voltage_units` (never set here, so it stays at its schema default `NATURAL_UNITS`),
+while `psse.jl`'s own comment states the DC-voltage-controlling side's raw value is p.u. of
+`rated_dc_voltage`, not kV, and PSS/E's `ACSET` is conventionally already p.u. of the AC
+bus's own base voltage. Re-tagging both as `"pu"` with `voltage_units` set to
+`DEVICE_BASE` would be the physically correct fix, but `voltage_units` is a single field
+shared with `voltage_limits_from`/`to` on this component (also unset here, defaulting to
+kV-flavored bounds `{min: 0.0, max: 999.9}`) — flipping it to `DEVICE_BASE` would silently
+relabel those untouched defaults as per-unit too. Fixing this properly needs either
+explicit `voltage_limits_from`/`to` values or a schema change to decouple the two setpoint
+bases from the limits basis; both are out of scope here and left as recorded debt.
 
 No fixture on hand carries a `vscline` entry (`_CONSUMED_PM_SECTIONS` covers the section
-regardless, so an empty one warns about nothing); this maker is exercised by a synthetic
-dict in the test suite, restricted to the DC_POWER/AC_REACTIVE_POWER case the generated
-units machinery actually supports today.
+regardless, so an empty one warns about nothing); this maker is exercised by synthetic
+dicts in the test suite.
 """
 function make_vscline!(
     sys::OpenAPISystem,
@@ -249,9 +252,9 @@ function make_vscline!(
         set_value!(component, :ac_control_from, "AC_REACTIVE_POWER")
     end
     if d["dc_voltage_control_from"]
-        # DC_VOLTAGE: unreachable today (see the NEEDS_CONTEXT note above) — `set_value!`
-        # raises from `PC.declared_unit` before this value is ever read, so no
-        # sys_mbase-scaled value is computed for a branch that can never use it.
+        # DC_VOLTAGE: not sys_mbase-scaled -- see the RECORDED GAP note above,
+        # this "kV" tag does not match the p.u.-of-rated_dc_voltage value
+        # psse.jl actually supplies here.
         set_value!(component, :dc_setpoint_from, d["dc_setpoint_from"], "kV")
     else
         set_value!(component, :dc_setpoint_from, d["dc_setpoint_from"] * sys_mbase, "MW")
@@ -291,8 +294,8 @@ function make_vscline!(
         set_value!(component, :ac_control_to, "AC_REACTIVE_POWER")
     end
     if d["dc_voltage_control_to"]
-        # DC_VOLTAGE: unreachable today, same as dc_setpoint_from above — no
-        # sys_mbase-scaled value is computed for a branch that can never use it.
+        # DC_VOLTAGE: not sys_mbase-scaled, same recorded gap as
+        # dc_setpoint_from above.
         set_value!(component, :dc_setpoint_to, d["dc_setpoint_to"], "kV")
     else
         set_value!(component, :dc_setpoint_to, d["dc_setpoint_to"] * sys_mbase, "MW")
