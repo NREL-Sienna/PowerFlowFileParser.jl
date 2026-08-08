@@ -9,9 +9,9 @@ end
     sys = PFP.OpenAPISystem(100.0)
     @test PFP.get_base_power(sys) == 100.0
     @test isempty(PFP.component_type_names(sys))
-    @test isempty(sys.time_series_associations)
-    @test isempty(sys.supplemental_attributes)
-    @test isempty(sys.supplemental_attribute_associations)
+    @test isempty(PFP.get_document(sys).time_series_associations)
+    @test isempty(PFP.get_document(sys).supplemental_attributes)
+    @test isempty(PFP.get_document(sys).supplemental_attribute_associations)
 end
 
 @testset "add_component! groups by type name" begin
@@ -59,11 +59,32 @@ end
     @test PFP.get_bus_id(PFP.get_registry(sys), 101) == id
 end
 
-@testset "add_supplemental_attribute_association! records the link" begin
+@testset "add_supplemental_attribute! records the attribute and its link" begin
     sys = PFP.OpenAPISystem(100.0)
-    assoc = PFP.add_supplemental_attribute_association!(sys, 7, 42)
-    @test PFP.get_value(assoc, :attribute_id) == 7
-    @test PFP.get_value(assoc, :entity_id) == 42
-    @test only(sys.supplemental_attribute_associations) === assoc
-    @test OpenAPI.check_required(assoc)
+    PFP.add_component!(sys, _bus(1, "Abel"))
+    geo = PFP.PC.GeographicInfo()
+    PFP.set_value!(geo, :id, 2)
+    PFP.set_value!(geo, :geo_json, Dict{String, Any}("type" => "Point"))
+    PFP.add_supplemental_attribute!(sys, geo, 1)
+
+    assoc = only(PFP.get_document(sys).supplemental_attribute_associations)
+    @test PFP.get_value(assoc, :attribute_id) == 2
+    @test PFP.get_value(assoc, :entity_id) == 1
+    @test only(PFP.get_supplemental_attributes(sys, "GeographicInfo")) === geo
+end
+
+@testset "add_service_association! records a membership row" begin
+    sys = PFP.OpenAPISystem(100.0)
+    PFP.add_component!(sys, _bus(1, "Abel"))
+    PFP.add_service_association!(sys, 99, 1, "ConstantReserve")
+    assoc = only(PFP.get_document(sys).supplemental_attribute_associations)
+    @test PFP.get_value(assoc, :attribute_id) == 99
+    @test PFP.get_value(assoc, :entity_id) == 1
+    @test PFP.get_value(assoc, :attribute_type) == "ConstantReserve"
+    @test_throws IS.DataFormatError PFP.add_service_association!(
+        sys,
+        99,
+        1,
+        "ConstantReserve",
+    )
 end

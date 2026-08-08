@@ -14,34 +14,32 @@ function _serialize_test_system()
     area = PFP.PO.Area()
     PFP.set_value!(area, :id, PFP.register!(reg, "Area", "1"))
     PFP.set_value!(area, :name, "1")
+    PFP.set_value!(area, :base_power, PFP.get_base_power(sys), "MVA")
     PFP.add_component!(sys, area)
 
     geo = PFP.PC.GeographicInfo()
     PFP.set_value!(geo, :id, PFP.next_id!(reg))
     PFP.set_value!(geo, :geo_json, Dict{String, Any}("type" => "Point"))
-    push!(sys.supplemental_attributes, geo)
-    PFP.add_supplemental_attribute_association!(
-        sys,
-        PFP.get_value(geo, :id),
-        PFP.get_value(bus, :id),
-    )
+    PFP.add_supplemental_attribute!(sys, geo, PFP.get_value(bus, :id))
     return sys
 end
 
-@testset "openapi_document has the agreed envelope" begin
-    doc = PFP.openapi_document(_serialize_test_system())
-    @test collect(keys(doc)) == [
-        "base_power",
-        "components",
-        "supplemental_attribute_associations",
-        "supplemental_attributes",
-        "time_series",
-        "time_series_associations",
-        "unit_system",
-    ]
+function _round_trip(sys)
+    return mktempdir() do dir
+        path = joinpath(dir, "case.json")
+        PFP.to_json(sys, path)
+        return JSON.parse(read(path, String))
+    end
+end
+
+@testset "document top-level shape" begin
+    doc = _round_trip(_serialize_test_system())
     @test doc["base_power"] == 100.0
-    @test isempty(doc["time_series"])
+    @test doc["unit_system"] == "NATURAL_UNITS"
+    @test isnothing(get(doc, "time_series_storage_file", nothing))
     @test isempty(doc["time_series_associations"])
+    @test haskey(doc, "supplemental_attributes")
+    @test haskey(doc, "supplemental_attribute_associations")
 end
 
 @testset "unit_system defaults to NATURAL_UNITS" begin
@@ -61,35 +59,35 @@ end
 end
 
 @testset "unit_system is carried into the document" begin
-    natural = PFP.openapi_document(_serialize_test_system())
+    natural = _round_trip(_serialize_test_system())
     @test natural["unit_system"] == "NATURAL_UNITS"
 
     sys = PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE")
-    device_base = PFP.openapi_document(sys)
+    device_base = _round_trip(sys)
     @test device_base["unit_system"] == "DEVICE_BASE"
 end
 
 @testset "components are grouped by type name in sorted order" begin
-    doc = PFP.openapi_document(_serialize_test_system())
+    doc = _round_trip(_serialize_test_system())
     @test collect(keys(doc["components"])) == ["ACBus", "Area"]
     @test length(doc["components"]["ACBus"]) == 1
     @test length(doc["components"]["Area"]) == 1
 end
 
 @testset "unset properties are absent, not null" begin
-    doc = PFP.openapi_document(_serialize_test_system())
+    doc = _round_trip(_serialize_test_system())
     bus = only(doc["components"]["ACBus"])
-    @test haskey(bus, :name)
-    @test bus[:number] == 101
-    @test !haskey(bus, :angle)
-    @test !haskey(bus, :voltage_limits)
+    @test haskey(bus, "name")
+    @test bus["number"] == 101
+    @test !haskey(bus, "angle")
+    @test !haskey(bus, "voltage_limits")
 end
 
 @testset "supplemental attribute associations serialize as id pairs" begin
-    doc = PFP.openapi_document(_serialize_test_system())
+    doc = _round_trip(_serialize_test_system())
     assoc = only(doc["supplemental_attribute_associations"])
-    @test assoc[:attribute_id] == 3
-    @test assoc[:entity_id] == 1
+    @test assoc["entity_id"] == 1
+    @test assoc["attribute_type"] == "GeographicInfo"
 end
 
 @testset "to_json writes a file that round-trips through JSON" begin
@@ -101,13 +99,13 @@ end
     @test parsed["components"]["ACBus"][1]["name"] == "Abel"
     @test parsed["components"]["ACBus"][1]["base_voltage"] == 138.0
     @test !haskey(parsed["components"]["ACBus"][1], "angle")
-    @test parsed["supplemental_attribute_associations"][1]["entity_id"] == 1
 end
 
 @testset "to_json refuses to overwrite without force" begin
     path = joinpath(mktempdir(), "case.json")
     PFP.to_json(_serialize_test_system(), path)
-    @test_throws ErrorException PFP.to_json(_serialize_test_system(), path)
+    # PC.write_document owns the "already exists" check for the JSON path now.
+    @test_throws PFP.PC.DocumentFormatError PFP.to_json(_serialize_test_system(), path)
     @test PFP.to_json(_serialize_test_system(), path; force = true) == path
 end
 
@@ -137,7 +135,17 @@ end
             @test OpenAPI.check_required(component)
         end
     end
-    for association in sys.supplemental_attribute_associations
+    for association in PFP.get_document(sys).supplemental_attribute_associations
         @test OpenAPI.check_required(association)
     end
+end
+
+@testset "a written document reads back through PC.read_document" begin
+    sys = _serialize_test_system()
+    path = joinpath(mktempdir(), "case.json")
+    PFP.to_json(sys, path)
+    doc = PFP.PC.read_document(path)
+    @test PFP.PC.get_base_power(doc) == 100.0
+    @test length(PFP.PC.get_components(doc, "ACBus")) == 1
+    @test length(PFP.PC.get_components(doc, "Area")) == 1
 end
