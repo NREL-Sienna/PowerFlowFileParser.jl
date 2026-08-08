@@ -44,6 +44,9 @@ include("openapi/identity.jl")
 include("openapi/container.jl")
 include("openapi/serialize.jl")
 include("openapi/topology.jl")
+include("openapi/cost.jl")
+include("openapi/load.jl")
+include("openapi/generation.jl")
 include("openapi/build.jl")
 
 #################################################################################
