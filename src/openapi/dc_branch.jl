@@ -43,8 +43,17 @@ function make_lcc_line!(
     set_value!(component, :parameter_units, "NATURAL_UNITS")
     set_value!(component, :r, d["r"], "ohm")
     set_value!(component, :power_mode, Bool(d["power_mode"]))
-    set_value!(component, :transfer_setpoint, d["transfer_setpoint"],
-        d["power_mode"] ? "MW" : "A")
+    if d["power_mode"]
+        transfer_setpoint_unit = "MW"
+    else
+        transfer_setpoint_unit = "A"
+    end
+    set_value!(
+        component,
+        :transfer_setpoint,
+        d["transfer_setpoint"],
+        transfer_setpoint_unit,
+    )
     set_value!(component, :dc_voltage_units, "NATURAL_UNITS")
     set_value!(component, :scheduled_dc_voltage, d["scheduled_dc_voltage"], "kV")
     set_value!(component, :rectifier_bridges, Int(d["rectifier_bridges"]))
@@ -224,17 +233,34 @@ function make_vscline!(
     set_value!(component, :active_power_limits_to,
         (min = d["pmint"] * sys_mbase, max = d["pmaxt"] * sys_mbase), "MW")
     set_value!(component, :admittance_units, "NATURAL_UNITS")
+    # Ternary exception: verbatim port of the oracle's own
+    # `d["r"] == 0.0 ? 0.0 : 1.0 / d["r"]` (`make_vscline`).
     set_value!(component, :g, iszero(d["r"]) ? 0.0 : 1.0 / d["r"], "S")
     set_value!(component, :dc_current, get(d, "if", 0.0), "A")
     set_value!(component, :reactive_power_from, get(d, "qf", 0.0) * sys_mbase, "MVAr")
-    set_value!(component, :dc_control_from,
-        d["dc_voltage_control_from"] ? "DC_VOLTAGE" : "DC_POWER")
-    set_value!(component, :ac_control_from,
-        d["ac_voltage_control_from"] ? "AC_VOLTAGE" : "AC_REACTIVE_POWER")
-    set_value!(component, :dc_setpoint_from, d["dc_setpoint_from"] * sys_mbase,
-        d["dc_voltage_control_from"] ? "kV" : "MW")
-    set_value!(component, :ac_setpoint_from, d["ac_setpoint_from"],
-        d["ac_voltage_control_from"] ? "kV" : "1")
+    if d["dc_voltage_control_from"]
+        set_value!(component, :dc_control_from, "DC_VOLTAGE")
+    else
+        set_value!(component, :dc_control_from, "DC_POWER")
+    end
+    if d["ac_voltage_control_from"]
+        set_value!(component, :ac_control_from, "AC_VOLTAGE")
+    else
+        set_value!(component, :ac_control_from, "AC_REACTIVE_POWER")
+    end
+    if d["dc_voltage_control_from"]
+        # DC_VOLTAGE: unreachable today (see the NEEDS_CONTEXT note above) — `set_value!`
+        # raises from `PC.declared_unit` before this value is ever read, so no
+        # sys_mbase-scaled value is computed for a branch that can never use it.
+        set_value!(component, :dc_setpoint_from, d["dc_setpoint_from"], "kV")
+    else
+        set_value!(component, :dc_setpoint_from, d["dc_setpoint_from"] * sys_mbase, "MW")
+    end
+    if d["ac_voltage_control_from"]
+        set_value!(component, :ac_setpoint_from, d["ac_setpoint_from"], "kV")
+    else
+        set_value!(component, :ac_setpoint_from, d["ac_setpoint_from"], "1")
+    end
     set_value!(
         component,
         :converter_loss_from,
@@ -254,14 +280,28 @@ function make_vscline!(
     set_value!(component, :remote_bus_control_from, _psse_remote_bus(d, "REMOT_FROM"))
     set_value!(component, :rmpct_from, get(get(d, "ext", Dict()), "RMPCT_FROM", 100.0), "1")
     set_value!(component, :reactive_power_to, get(d, "qt", 0.0) * sys_mbase, "MVAr")
-    set_value!(component, :dc_control_to,
-        d["dc_voltage_control_to"] ? "DC_VOLTAGE" : "DC_POWER")
-    set_value!(component, :ac_control_to,
-        d["ac_voltage_control_to"] ? "AC_VOLTAGE" : "AC_REACTIVE_POWER")
-    set_value!(component, :dc_setpoint_to, d["dc_setpoint_to"] * sys_mbase,
-        d["dc_voltage_control_to"] ? "kV" : "MW")
-    set_value!(component, :ac_setpoint_to, d["ac_setpoint_to"],
-        d["ac_voltage_control_to"] ? "kV" : "1")
+    if d["dc_voltage_control_to"]
+        set_value!(component, :dc_control_to, "DC_VOLTAGE")
+    else
+        set_value!(component, :dc_control_to, "DC_POWER")
+    end
+    if d["ac_voltage_control_to"]
+        set_value!(component, :ac_control_to, "AC_VOLTAGE")
+    else
+        set_value!(component, :ac_control_to, "AC_REACTIVE_POWER")
+    end
+    if d["dc_voltage_control_to"]
+        # DC_VOLTAGE: unreachable today, same as dc_setpoint_from above — no
+        # sys_mbase-scaled value is computed for a branch that can never use it.
+        set_value!(component, :dc_setpoint_to, d["dc_setpoint_to"], "kV")
+    else
+        set_value!(component, :dc_setpoint_to, d["dc_setpoint_to"] * sys_mbase, "MW")
+    end
+    if d["ac_voltage_control_to"]
+        set_value!(component, :ac_setpoint_to, d["ac_setpoint_to"], "kV")
+    else
+        set_value!(component, :ac_setpoint_to, d["ac_setpoint_to"], "1")
+    end
     set_value!(
         component,
         :converter_loss_to,
@@ -294,7 +334,10 @@ end
 regulation as `nothing`. Ported from PSCB's `_psse_remote_bus`."""
 function _psse_remote_bus(d::Dict, key::AbstractString)
     remote_bus = get(get(d, "ext", Dict()), key, 0)
-    return iszero(remote_bus) ? nothing : remote_bus
+    if iszero(remote_bus)
+        return nothing
+    end
+    return remote_bus
 end
 
 """
@@ -385,6 +428,8 @@ function read_area_interchanges!(sys::OpenAPISystem, data::Dict; kwargs...)
         area_to_name = _get_area_name(d["area_to"])
         transfer_id = get(d, "transfer_id", "1")
         if !has_id(reg, "Area", area_from_name) || !has_id(reg, "Area", area_to_name)
+            # Ternary exception: verbatim port of the oracle's own
+            # `isnothing(from_area) ? area_from_name : nothing` pair (`read_bus!`).
             missing_areas = join(
                 filter(
                     !isnothing,

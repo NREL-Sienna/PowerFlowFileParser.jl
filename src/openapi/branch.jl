@@ -52,6 +52,8 @@ PSS/E path).
 """
 function _get_rating(name::AbstractString, d::Dict, key::AbstractString)
     if !haskey(d, key)
+        # Ternary exception: verbatim port of the oracle's own
+        # `key == "rate_a" ? INFINITE_BOUND : nothing` (`_get_rating`).
         return key == "rate_a" ? INFINITE_BOUND : nothing
     end
     if isapprox(d[key], 0.0)
@@ -59,6 +61,16 @@ function _get_rating(name::AbstractString, d::Dict, key::AbstractString)
         return INFINITE_BOUND
     end
     return d[key]
+end
+
+"""A `_get_rating`-style optional value (`rating_b`/`rating_c`, `nothing` when the pm
+dict carries no such key), scaled onto the circuit's own `base_power` — new to this
+task's own sign-off-item-1 conversion, not an oracle port."""
+function _scaled_or_nothing(value, base_power::Real)
+    if isnothing(value)
+        return nothing
+    end
+    return value * base_power
 end
 
 """Bus name and ISOLATED status by pm bus number. Shared by the branch/transformer/
@@ -90,6 +102,8 @@ function _get_pm_branch_name(
            source_id[1] in ("switch", "breaker", "generic_connector") &&
            length(source_id) > 2
         ckt = strip(string(source_id[4]))
+        # Ternary exception: verbatim port of the oracle's own marker-strip ternary
+        # (`_get_pm_branch_name`).
         (!isempty(ckt) && first(ckt) in ('@', '*')) ? ckt[2:end] : ckt
     elseif !isnothing(source_id) && source_id[1] == "transformer" && length(source_id) > 3
         strip(string(source_id[5]))
@@ -120,7 +134,9 @@ end
 """matpower's own zero-rebase convention: `base_kv`/`base_power` of `0.0` means
 "unspecified"; PSY's transformer winding validation requires a positive base voltage, so
 `nothing` (unknown) is stored instead of a literal `0.0`. Ported from PSCB's
-`_base_voltage_or_nothing`."""
+`_base_voltage_or_nothing`.
+
+Ternary exception: verbatim port of the oracle's own `iszero(v) ? nothing : v`."""
 _base_voltage_or_nothing(v::Real) = iszero(v) ? nothing : v
 
 """PowerModels `bus_type`... no — PSS/E COD1/COD2 transformer control-objective codes, in
@@ -201,7 +217,11 @@ function _set_transformer_control_fields!(
     cod = get(d, "COD$suffix", -99)
     objective = _transformer_control_objective(cod)
     phase_shifting = objective in _PHASE_SHIFT_OBJECTIVES
-    rmi_default, rma_default = phase_shifting ? (-180.0, 180.0) : (0.9, 1.1)
+    if phase_shifting
+        rmi_default, rma_default = -180.0, 180.0
+    else
+        rmi_default, rma_default = 0.9, 1.1
+    end
     rmi = get(d, "RMI$suffix", rmi_default)
     rma = get(d, "RMA$suffix", rma_default)
     if rmi > rma
@@ -359,7 +379,11 @@ function make_switch_from_zero_impedance_branch!(
 )
     available = _branch_available(d["br_status"] == 1, from_isolated, to_isolated)
     arc_id = add_arc!(sys, from_id, to_id)
-    status = available ? "CLOSED" : "OPEN"
+    if available
+        status = "CLOSED"
+    else
+        status = "OPEN"
+    end
     @warn "Branch $name has zero impedance and available = $available; converting to a DiscreteControlledACBranch of type SWITCH with available = $available and branch_status = $status"
 
     component = PO.DiscreteControlledACBranch()
@@ -387,7 +411,10 @@ function _branch_type_matpower(d::Dict)
     if !is_transformer
         is_transformer = (tap != 0.0 && tap != 1.0) || shift != 0.0
     end
-    return is_transformer ? :transformer : :line
+    if is_transformer
+        return :transformer
+    end
+    return :line
 end
 
 """Ported from PSCB's `get_branch_type_psse` (:1216-1235)."""
@@ -433,9 +460,9 @@ function make_transformer_2w!(
         tap_key = "tap", angle_key = "shift", control_suffix = 1,
         available = available,
         r = d["br_r"], x = d["br_x"],
-        rating = isnothing(rate_a) ? nothing : rate_a * base_power,
-        rating_b = isnothing(rate_b) ? nothing : rate_b * base_power,
-        rating_c = isnothing(rate_c) ? nothing : rate_c * base_power,
+        rating = _scaled_or_nothing(rate_a, base_power),
+        rating_b = _scaled_or_nothing(rate_b, base_power),
+        rating_c = _scaled_or_nothing(rate_c, base_power),
         base_power = base_power,
         base_voltage_primary = _base_voltage_or_nothing(d["base_voltage_from"]),
         base_voltage_secondary = _base_voltage_or_nothing(d["base_voltage_to"]),
