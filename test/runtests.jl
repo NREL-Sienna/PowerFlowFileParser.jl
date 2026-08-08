@@ -22,6 +22,16 @@ const MATPOWER_DIR = joinpath(DATA_DIR, "matpower")
 const PSSE_RAW_DIR = joinpath(DATA_DIR, "psse_raw")
 const BAD_DATA = joinpath(DATA_DIR, "bad_data_for_tests")
 
+const FOURTEEN_BUS_FIXTURE = joinpath(@__DIR__, "modified_14bus_system.raw")
+
+fourteen_bus_pm_data() = PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE)
+
+"""Compound OpenAPI values (`MinMax`, `FromTo`, `ComplexNumber`, ...) are generated
+structs, not `NamedTuple`s — compare them to a `NamedTuple` field-by-field rather than
+via `==`, which would always be `false` across the two types."""
+_matches_nt(value, nt::NamedTuple) =
+    all(getproperty(value, k) == v for (k, v) in pairs(nt))
+
 LOG_FILE = "power-flow-parser.log"
 LOG_LEVELS = Dict(
     "Debug" => Logging.Debug,

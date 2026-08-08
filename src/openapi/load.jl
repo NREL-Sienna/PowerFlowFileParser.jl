@@ -7,19 +7,14 @@
 # documents. Every MW/MVAr field this file writes is `raw_pu * base_power` before
 # `set_value!` — mirroring topology.jl's `_zone_peak_loads`, not a PSCB peculiarity.
 #
-# `make_interruptible_powerload` (PSCB :534-553, producing `InterruptiblePowerLoad`) is not
-# ported: `read_loads!`'s own if/elseif/else only ever calls
-# `make_standard_load`/`make_interruptible_standardload`/`make_power_load`, so PSCB's
-# `InterruptiblePowerLoad` maker is unreachable dead code. Porting unreachable code would
-# add an untested path with no oracle behavior to check it against.
+# `make_interruptible_powerload` (PSCB :534-553) is not ported: `read_loads!`'s own
+# if/elseif/else never calls it, so it is unreachable dead code in the oracle.
 
 """
 Numeric value of a pm dict section's own key, for deterministic iteration order.
 
 PowerModels dict keys are `Int` for a Matpower-sourced case but `String` for a PSS/E-
-sourced one (both are decimal renderings of the same 1-based index) — this normalizes
-either to `Int` so `sort(...; by = ...)` gives the same order regardless of source.
-Shared with generation.jl.
+sourced one, so normalizing to `Int` keeps `sort` order the same regardless of source.
 """
 _pm_key_int(key::Integer) = Int(key)
 _pm_key_int(key::AbstractString) = parse(Int, key)
@@ -163,13 +158,11 @@ whose `source_id` matches a `data["distributed_generation"]` entry.
 
 Ported from PSCB's `read_loads!`. The three-way type choice mirrors PSCB exactly: PSS/E
 loads (`source_type == "pti"`) split on their `"interruptible"` flag between
-`StandardLoad` and `InterruptibleStandardLoad`; every other source (Matpower, or a PSS/E
-load with no `"interruptible"` key at all, which the parser never actually produces)
-falls through to `PowerLoad`.
+`StandardLoad` and `InterruptibleStandardLoad`; every other source falls through to
+`PowerLoad`.
 
 Departs from PSCB in one place: a distributed-generation entry that matches no load is an
-`error`, not PSCB's `@warn`-and-skip — this reader's no-silent-skip policy, not one of the
-three named bug-compatible sites.
+`error`, not PSCB's `@warn`-and-skip — this reader's no-silent-skip policy.
 """
 function read_loads!(sys::OpenAPISystem, data::Dict; kwargs...)
     reg = get_registry(sys)

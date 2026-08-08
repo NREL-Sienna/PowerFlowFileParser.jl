@@ -1,9 +1,5 @@
-const FOURTEEN_BUS_FIXTURE_SWITCH = joinpath(@__DIR__, "modified_14bus_system.raw")
-
-_fourteen_bus_pm_data_switch() = PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE_SWITCH)
-
 @testset "DiscreteControlledACBranch: switch/breaker r/x/rating/flow verbatim passthrough, no INFINITE_BOUND" begin
-    pm = _fourteen_bus_pm_data_switch()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     data = pm.data
 

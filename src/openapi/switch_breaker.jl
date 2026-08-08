@@ -3,25 +3,18 @@
 # folded into one reader here since all three pm sections share an identical row shape).
 #
 # None of "switch"/"breaker"/"generic_connector" are native PowerModels sections —
-# `_psse2pm_switch_breaker!` (`pm_io/psse.jl`) writes `r`/`rating`/`active_power_flow`/
-# `reactive_power_flow` directly from PSS/E fields with no `_make_per_unit!` pass over
-# them, so every value here is used exactly as parsed: no `sys_mbase` scaling anywhere in
-# this file, matching the oracle. `active_power_flow`/`reactive_power_flow` are always
-# `0.0` at the source (`_build_switch_breaker_sub_data` never computes a flow for a
-# switching device), so this is a fixed-zero passthrough, not a simplification.
+# `_psse2pm_switch_breaker!` (`pm_io/psse.jl`) writes their fields directly from PSS/E
+# records with no `_make_per_unit!` pass, so every value here is used exactly as parsed:
+# no `sys_mbase` scaling anywhere in this file, matching the oracle.
 #
 # `state`'s isolated-bus zeroing already happened while parsing
-# (`branch_isolated_bus_modifications!`, `pm_io/psse.jl`, called from
-# `_psse2pm_switch_breaker!` itself), so unlike `make_line!`/`make_transformer_2w!` this
-# needs no separate `_branch_available`-style guard — matching the oracle, which applies
-# none either.
+# (`branch_isolated_bus_modifications!`, `pm_io/psse.jl`), so unlike `make_line!`/
+# `make_transformer_2w!` this needs no `_branch_available`-style guard.
 #
-# MATPOWER's own native `mpc.switch` table (parsed by `pm_io/matpower.jl`: a distinct
-# shape — `f_bus`/`t_bus`/`psw`/`qsw`/`state`/`thermal_rating`/`status`, none of `r`/`x`/
-# `rating`/`discrete_branch_type`) is NOT this reader's target and is not exercised by any
-# fixture in this repo. PSCB's own `read_switch_breaker!` would `KeyError` on it exactly
-# the same way this reader does — an existing oracle gap, not one this task introduces or
-# fixes.
+# MATPOWER's own native `mpc.switch` table has a different shape (`psw`/`qsw`/
+# `thermal_rating`, no `r`/`x`/`rating`/`discrete_branch_type`) and is not this reader's
+# target; PSCB's `read_switch_breaker!` `KeyError`s on it the same way — an existing
+# oracle gap, not one this task introduces.
 
 """PowerModels/PSS/E discrete-branch-type codes (`0`/`1`/`2`), in the schema's
 `DiscreteControlledACBranch.discrete_branch_type` spelling. Ported from PSY's own
@@ -50,11 +43,9 @@ end
 
 """
 A switch, breaker, or generic connector as a `DiscreteControlledACBranch`. Ported from
-PSCB's `make_switch_breaker` (:1349-1363). `base_power` is not set by the oracle's
-constructor call — PSY's own `add_component!` back-fills it from the system base for
-every `BasePowerKind::SystemBasePower` type, `DiscreteControlledACBranch` among them
-(matching `Line`'s D-C convention) — so this reader sets it explicitly, same as
-`make_line!`/`make_switch_from_zero_impedance_branch!` do for the same reason.
+PSCB's `make_switch_breaker` (:1349-1363). `base_power` is set explicitly here because
+the oracle's constructor leaves it to PSY's `add_component!`, which back-fills the system
+base for every `BasePowerKind::SystemBasePower` type (D-C convention).
 """
 function make_switch_breaker!(
     sys::OpenAPISystem,

@@ -20,12 +20,6 @@ function _zero_cost_curve()
     )
 end
 
-"""Slope of the first segment of a piecewise-linear point set."""
-function _first_slope(points::Vector{PC.XYCoords})
-    p1, p2 = points[1], points[2]
-    return (p2.y - p1.y) / (p2.x - p1.x)
-end
-
 """
 Piecewise-linear cost from MATPOWER's alternating (MW, \$/hr) pairs (cost model `1`).
 
@@ -38,9 +32,9 @@ function _piecewise_linear_cost(cost_component::Vector{Float64})
     power_p = [c for (ix, c) in enumerate(cost_component) if isodd(ix)]
     cost_p = [c for (ix, c) in enumerate(cost_component) if iseven(ix)]
     points = collect(zip(power_p, cost_p))
-    first_x, first_y = first(points)
-    xy_points = [PC.XYCoords(; x = x, y = y) for (x, y) in points]
-    fixed = max(0.0, first_y - _first_slope(xy_points) * first_x)
+    (first_x, first_y), (second_x, second_y) = points[1], points[2]
+    first_slope = (second_y - first_y) / (second_x - first_x)
+    fixed = max(0.0, first_y - first_slope * first_x)
     shifted = [PC.XYCoords(; x = x, y = y - fixed) for (x, y) in points]
     return PC.PiecewiseLinearData(; points = shifted), fixed
 end

@@ -1,9 +1,5 @@
-const FOURTEEN_BUS_FIXTURE_ATTRIBUTES = joinpath(@__DIR__, "modified_14bus_system.raw")
-
-_fourteen_bus_pm_data_attributes() = PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE_ATTRIBUTES)
-
 @testset "ImpedanceCorrectionData: attribute count and sharing match the oracle exactly" begin
-    pm = _fourteen_bus_pm_data_attributes()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     data = pm.data
     @test length(data["impedance_correction"]) == 9
@@ -55,7 +51,7 @@ _fourteen_bus_pm_data_attributes() = PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE_AT
 end
 
 @testset "ImpedanceCorrectionData: table_number/curve/control_mode hand-derived from a single 2W table" begin
-    pm = _fourteen_bus_pm_data_attributes()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     data = pm.data
 
@@ -136,7 +132,7 @@ end
 end
 
 @testset "the emitted document round-trips through PC with ImpedanceCorrectionData intact" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data_attributes())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     path = joinpath(mktempdir(), "fourteen_bus_attributes.json")
     PFP.to_json(sys, path)
     doc = PFP.PC.read_document(path)

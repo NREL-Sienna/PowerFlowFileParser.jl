@@ -1,21 +1,13 @@
-# Tests for src/openapi/load.jl (task 13b).
-
-const FOURTEEN_BUS_FIXTURE_LOAD = joinpath(@__DIR__, "modified_14bus_system.raw")
-
-function _fourteen_bus_pm_data_load()
-    return PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE_LOAD)
-end
-
 @testset "read_loads! on the 14-bus PSS/E fixture makes StandardLoad, not PowerLoad" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data_load())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     @test length(PFP.get_components(sys, "StandardLoad")) == 13
     @test isempty(PFP.get_components(sys, "PowerLoad"))
     @test isempty(PFP.get_components(sys, "InterruptibleStandardLoad"))
 end
 
 @testset "StandardLoad fields convert system pu to MW/MVAr against every 14-bus load" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data_load())
-    data = _fourteen_bus_pm_data_load().data
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
+    data = fourteen_bus_pm_data().data
     base_power = PFP.get_base_power(sys)
     reg = PFP.get_registry(sys)
     for load in PFP.get_components(sys, "StandardLoad")
@@ -90,7 +82,7 @@ end
 end
 
 @testset "PSS/E interruptible = 1 makes an InterruptibleStandardLoad" begin
-    pm = _fourteen_bus_pm_data_load()
+    pm = fourteen_bus_pm_data()
     data = deepcopy(pm.data)
     first_key = first(keys(data["load"]))
     data["load"][first_key]["interruptible"] = 1

@@ -1,13 +1,3 @@
-const FOURTEEN_BUS_FIXTURE_BRANCH = joinpath(@__DIR__, "modified_14bus_system.raw")
-
-_fourteen_bus_pm_data_branch() = PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE_BRANCH)
-
-"""Compound OpenAPI values (`MinMax`, `FromTo`, `ComplexNumber`, ...) are generated
-structs, not `NamedTuple`s — compare them to a `NamedTuple` field-by-field rather than
-via `==`, which would always be `false` across the two types."""
-_matches_nt(value, nt::NamedTuple) =
-    all(getproperty(value, k) == v for (k, v) in pairs(nt))
-
 """Find the `TransformerCircuit`/`Line`/dc-line-shaped component of `type_name` whose
 `:arc` connects pm bus numbers `from_number`/`to_number`. `add_arc!` is idempotent — it
 only registers a new arc when the pair is not already known — so calling it here is a
@@ -46,7 +36,7 @@ function _two_winding_transformer_for(sys, circuit)
 end
 
 @testset "Line: r/x/b are pu-by-convention passthrough, ratings/flows are ×baseMVA" begin
-    pm = _fourteen_bus_pm_data_branch()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     d = only(
         v for v in values(pm.data["branch"]) if
@@ -70,7 +60,7 @@ end
 end
 
 @testset "TwoWindingTransformer + TransformerCircuit: r/x device-base passthrough, rating/flow ×circuit base_power" begin
-    pm = _fourteen_bus_pm_data_branch()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     d = only(
         v for v in values(pm.data["branch"]) if
@@ -117,7 +107,7 @@ end
 end
 
 @testset "ThreeWindingTransformer: three circuits, unbounded (zero) ratings become INFINITE_BOUND, no rating scaling" begin
-    pm = _fourteen_bus_pm_data_branch()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     d = only(v for v in values(pm.data["3w_transformer"]) if v["bus_primary"] == 109)
     @test d["rating_primary"] == 0.0  # unbounded in the raw record
@@ -182,7 +172,7 @@ end
 end
 
 @testset "zero-impedance branch becomes a DiscreteControlledACBranch of type SWITCH" begin
-    data = _fourteen_bus_pm_data_branch().data
+    data = fourteen_bus_pm_data().data
     d = first(values(data["branch"]))
     zero_z = merge(
         Dict{String, Any}(k => v for (k, v) in d),

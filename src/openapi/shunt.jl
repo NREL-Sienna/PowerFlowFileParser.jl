@@ -48,13 +48,10 @@ end
 
 """
 Assign `Y_increase`: an array of complex admittances sharing `admittance_units`'s
-discriminated unit. `units.jl`'s generic compound-value path (`set_value!` for a
-`NamedTuple`) builds ONE compound object per call via `_compound_type`, which cannot
-construct a `Vector` of them (`SwitchedAdmittance.Y_increase`'s declared Julia type is
-plain `Vector`, not a single compound struct) — this is the one array-of-compound-value
-shape any reader in this family needs, so it is handled locally with the same private
-`_declared`/`_convert` machinery `units.jl` itself uses, rather than by extending
-`units.jl` for a single call site.
+discriminated unit. `units.jl`'s generic compound-value path builds ONE compound object
+per call and cannot construct a `Vector` of them; this is the only array-of-compound
+shape any reader needs, so it reuses `units.jl`'s private `_declared`/`_convert` here
+rather than extending `set_value!` for a single call site.
 """
 function _set_y_increase!(
     component,
@@ -78,9 +75,7 @@ Switched admittance (PSS/E `SWITCHED SHUNT`). Ported from PSCB's `make_switched_
 
 `admittance_limits` mirrors PSCB's own field verbatim: PSS/E's `VSWLO`/`VSWHI` are a
 controlled-voltage band, not an admittance band, despite the oracle's field name — a
-pre-existing PSCB naming/semantics quirk this reader reproduces faithfully (assigned
-under the same `DEVICE_MVAR` basis as `Y`/`Y_increase`, with no unit reinterpretation),
-not a fix or a named bug-compatible site.
+pre-existing PSCB naming quirk reproduced faithfully, not fixed here.
 """
 function make_switched_admittance!(
     sys::OpenAPISystem,
@@ -124,10 +119,8 @@ end
 """PSS/E FACTS MODE codes (0/1/2 — "Unavailable"/"Normal"/"Link bypassed", per
 `pm_io/psse.jl:430`), in the schema's `FACTSControlDevice.control_mode` spelling. Ported
 from PSY's `FACTSOperationModes` enum (`definitions.jl:98-102`). PSCB's own
-`make_facts` guards only `d["control_mode"] > 3` (a stale bound from a since-shrunk
-enum); this reader's own bound is 0-2, the current enum's actual domain — a tightening,
-not a behavior change, since any code the current enum cannot represent is a data error
-either way."""
+`make_facts` guards only `d["control_mode"] > 3`, a stale bound from a since-shrunk enum;
+this reader's bound is 0-2, the current enum's actual domain."""
 const FACTS_CONTROL_MODE_NAMES = Dict(0 => "OOS", 1 => "NML", 2 => "BYP")
 
 function _facts_control_mode(code::Integer)
@@ -181,18 +174,13 @@ end
 Create one `FixedAdmittance` per `data["shunt"]` entry, one `SwitchedAdmittance` per
 `data["switched_shunt"]` entry, and one `FACTSControlDevice` per `data["facts"]` entry.
 Ported from PSCB's `read_shunt!`/`read_switched_shunt!`/`read_facts!` (:1935-2036), run
-together as this sub-task's "shunt" stage. `_get_pm_dict_name` (generation.jl) already
-handles the `"shunt_bus"`-prefixed naming this file's makers need — that branch was
-scaffolding left by 13b for this reader.
+together as one stage.
 
-Deviates from the oracle in one place: PSCB's own `read_facts!` reads its name formatter
-under the `:bus_name_formatter` kwarg — the same name `read_bus!` (topology.jl) uses for
-ACBus naming — which is a copy-paste artifact in the oracle, not a deliberate shared
-formatter (a FACTS dict and a bus dict share no keys, so a real `bus_name_formatter`
-supplied for buses would `KeyError` if `read_facts!` tried to call it on a FACTS entry).
-This reader uses its own `:facts_name_formatter` kwarg instead, with the same default
-(`_get_pm_dict_name`) and therefore identical behavior for every caller that does not
-override either formatter.
+Deviates from the oracle in one place: PSCB's `read_facts!` reads its name formatter under
+`:bus_name_formatter`, the same kwarg `read_bus!` uses — a copy-paste artifact, since a
+real bus formatter would `KeyError` on a FACTS entry. This reader uses
+`:facts_name_formatter` instead, with the same default and identical behavior for any
+caller that overrides neither.
 """
 function read_shunts!(sys::OpenAPISystem, data::Dict; kwargs...)
     reg = get_registry(sys)

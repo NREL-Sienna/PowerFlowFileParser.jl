@@ -1,6 +1,5 @@
 # Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl (read_bus!,
-# read_loadzones!, and the Arc id path shared by the branch/dc_branch/transformer_3w
-# readers a later sub-task adds).
+# read_loadzones!, and the Arc id path the branch/dc_branch/transformer_3w readers share).
 #
 # `PowerModelsData(file)` defaults `pm_data_corrections = true`, which runs PowerModels'
 # `_make_per_unit!`: every power quantity in `data` (including load pd/qd) arrives as
@@ -67,16 +66,12 @@ end
 """
 PSS/E AREA DATA per-area metadata (name, slack bus, desired/tolerance interchange) for
 the `Area` named `area_name`, in PSCB's own `ext` shape. Ported from the inline
-area_interchange lookup inside PSCB's `read_bus!` (:437-458): matched onto the area whose
-(formatted) name equals `string(area_data["area_number"])` — the SAME match rule as the
-oracle, including its `area_name_formatter`-dependent behavior (a non-default formatter
-makes this comparison never match, same silent gap the oracle itself has; not fixed here).
+area_interchange lookup inside PSCB's `read_bus!` (:437-458), including its match rule's
+`area_name_formatter`-dependent behavior: a non-default formatter makes this comparison
+never match, the same silent gap the oracle has.
 
-Unlike the oracle, which unconditionally attaches an all-`""` `ext` dict even without a
-match, this returns `nothing` for "no match" — the caller only calls `set_ext!` when
-there is real data to record, matching every other reader in this codebase's own
-`if !isempty(extras)` convention (branch.jl, shunt.jl, generation.jl) rather than the
-oracle's unconditional one.
+Returns `nothing` for "no match" rather than the oracle's unconditional all-`""` dict, so
+the caller only calls `set_ext!` when there is real data to record.
 """
 function _area_interchange_ext(data::Dict, area_name::AbstractString)
     if get(data, "source_type", nothing) != "pti" || !haskey(data, "area_interchange")
@@ -98,11 +93,11 @@ function _area_interchange_ext(data::Dict, area_name::AbstractString)
 end
 
 """
-Return the id of the named `Area`, creating it with a zero peak on first sight.
+Return the id of the named `Area`, creating it on first sight.
 
-PSCB's oracle never back-fills an `Area`'s peak from load data — only `LoadZone` does,
-via `read_loadzones!` below — so this ports that asymmetry rather than "fixing" it; the
-zero comes from `PO.Area`'s own default, not an explicit `set_value!` here.
+The peak stays at `PO.Area`'s own zero default: PSCB never back-fills an `Area`'s peak
+from load data — only `LoadZone` does, via `read_loadzones!` — an asymmetry ported rather
+than fixed.
 """
 function _ensure_area!(sys::OpenAPISystem, data::Dict, name::AbstractString)
     reg = get_registry(sys)
@@ -113,8 +108,7 @@ function _ensure_area!(sys::OpenAPISystem, data::Dict, name::AbstractString)
     id = register!(reg, "Area", name)
     set_value!(area, :id, id)
     set_value!(area, :name, name)
-    # Area has no device base of its own; base_power records the system base here,
-    # the documented convention for the types this applies to (D-C).
+    # Area has no device base; base_power records the system base (D-C convention).
     set_value!(area, :base_power, get_base_power(sys), "MVA")
     add_component!(sys, area)
     extras = _area_interchange_ext(data, name)
@@ -163,8 +157,7 @@ function read_loadzones!(sys::OpenAPISystem, data::Dict; kwargs...)
         set_value!(load_zone, :name, name)
         set_value!(load_zone, :peak_active_power, active, "MW")
         set_value!(load_zone, :peak_reactive_power, reactive, "MVAr")
-        # LoadZone has no device base of its own; base_power records the system base
-        # here, the documented convention for the types this applies to (D-C).
+        # LoadZone has no device base; base_power records the system base (D-C convention).
         set_value!(load_zone, :base_power, get_base_power(sys), "MVA")
         add_component!(sys, load_zone)
     end
@@ -220,9 +213,7 @@ end
 """
 Return the id of the `Arc` between two bus ids, creating it on first sight.
 
-Parallel circuits (PSS/E allows several `CKT`s on one bus pair) share one arc. This is
-scaffolding for the branch, dc_branch and transformer_3w readers a later sub-task adds;
-nothing in this sub-task calls it outside its own tests.
+Parallel circuits (PSS/E allows several `CKT`s on one bus pair) share one arc.
 """
 function add_arc!(sys::OpenAPISystem, from_id::Int, to_id::Int)
     id, created = arc_id!(get_registry(sys), from_id, to_id)

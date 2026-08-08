@@ -13,33 +13,22 @@
 #
 # For a PSS/E-sourced transformer, PFFP's own `psse.jl` additionally REBASES `br_r`/
 # `br_x`/`g_fr`/`b_fr` from system-pu onto the transformer's own winding base
-# (`d["base_power"]`, a custom, non-PM-native key `_make_per_unit!` never touches) BEFORE
-# this reader ever sees them — confirmed by reading `psse.jl`'s CZ/CM branches directly.
-# `rate_a`/`rate_b`/`rate_c`/`pf`/`qf` are NOT rebased this way (PowerModels' correction
-# treats every branch, transformer or not, identically for its power fields), so the
-# oracle's own `TransformerCircuit.rating`/`active_power_flow`/`reactive_power_flow`
-# fields end up holding a SYSTEM-pu number that PSY's own units engine reads back as
-# DEVICE-base pu (`display_units_arg(get_rating, TransformerCircuit) == PSY.DU`).
-# Verified empirically against the real oracle (PowerSystemCaseBuilder + PowerSystems,
-# synthetic `base_power = 50` on a 100 MVA system): `PSY.get_rating(circuit, PSY.NU)`
-# returns the raw stored number multiplied by the CIRCUIT's own `base_power`, not by
-# `sys_mbase`. This reader reproduces exactly that reading — every circuit
-# rating/flow is `raw_pm_value * circuit_base_power`, not `raw_pm_value * sys_mbase` —
-# which is the mechanical "multiply by the field's own base" rule 13b's generation.jl
-# established, extended to transformer circuits. The two coincide whenever the winding
-# base equals the system base (true in every fixture on hand and always true for
-# MATPOWER, where `psse.jl`'s sibling sets `branch["base_power"] = baseMVA`
-# unconditionally), so this is untestable against a real fixture; see the task report.
+# (`d["base_power"]`, a custom key `_make_per_unit!` never touches) BEFORE this reader
+# sees them. `rate_a`/`rate_b`/`rate_c`/`pf`/`qf` are NOT rebased that way, so the
+# oracle's `TransformerCircuit.rating`/`*_power_flow` fields hold a SYSTEM-pu number that
+# PSY's units engine reads back as DEVICE-base pu. Verified against the real oracle
+# (synthetic `base_power = 50` on a 100 MVA system): `PSY.get_rating(circuit, PSY.NU)`
+# multiplies by the CIRCUIT's own `base_power`, not by `sys_mbase`, and this reader
+# reproduces exactly that. The two coincide whenever the winding base equals the system
+# base — true in every fixture on hand, and always true for MATPOWER — so no real fixture
+# can distinguish them.
 #
 # `data["3w_transformer"]` is NOT a native PowerModels section — `_make_per_unit!` never
-# touches it. Its per-winding ratings/flows (`rating_primary`/`active_power_flow_primary`/
-# ...) are populated directly from raw PSS/E fields by `psse.jl` (confirmed by reading
-# that code: `rating_primary = min(RATA1, RATB1, RATC1)`, the literal PSS/E MVA rating,
-# and the flow fields are hardcoded `0.0` — "PowerModels has no flow data for 3W
-# transformers"), so they are ALREADY natural units and this reader applies no further
-# scaling to them. Its `r_primary`/`x_primary`/... and pairwise `r_12`/`x_12`/... are, like
-# the 2W case, rebased by `psse.jl` onto their own winding base and used as-is (device-base
-# pu, passthrough).
+# touches it. Its per-winding ratings/flows come straight from raw PSS/E fields
+# (`rating_primary = min(RATA1, RATB1, RATC1)`; the flows are hardcoded `0.0`, PowerModels
+# having no 3W flow data), so they are ALREADY natural units and get no further scaling.
+# Its `r_primary`/`x_primary`/... and pairwise `r_12`/`x_12`/... are, like the 2W case,
+# rebased by `psse.jl` onto their own winding base and passed through as device-base pu.
 
 """
 Rating from a pm branch/transformer dict entry, matching PSCB's `_get_rating`: an absent
@@ -63,9 +52,8 @@ function _get_rating(name::AbstractString, d::Dict, key::AbstractString)
     return d[key]
 end
 
-"""A `_get_rating`-style optional value (`rating_b`/`rating_c`, `nothing` when the pm
-dict carries no such key), scaled onto the circuit's own `base_power` — new to this
-task's own sign-off-item-1 conversion, not an oracle port."""
+"""A `_get_rating`-style optional value (`nothing` when the pm dict carries no such key),
+scaled onto the circuit's own `base_power`."""
 function _scaled_or_nothing(value, base_power::Real)
     if isnothing(value)
         return nothing
@@ -139,8 +127,8 @@ end
 Ternary exception: verbatim port of the oracle's own `iszero(v) ? nothing : v`."""
 _base_voltage_or_nothing(v::Real) = iszero(v) ? nothing : v
 
-"""PowerModels `bus_type`... no — PSS/E COD1/COD2 transformer control-objective codes, in
-the schema's `TransformerCircuit.control_objective` spelling. Ported from PSY's
+"""PSS/E COD1/COD2 transformer control-objective codes, in the schema's
+`TransformerCircuit.control_objective` spelling. Ported from PSY's
 `TransformerControlObjective` enum (`definitions.jl:260-273`)."""
 const TRANSFORMER_CONTROL_OBJECTIVE_NAMES = Dict(
     -99 => "UNDEFINED",
@@ -201,12 +189,10 @@ end
 """
 Assign a `TransformerCircuit`'s flat control block from a pm transformer dict `d` for
 winding `suffix` (1/2/3). Ported from PSCB's `_transformer_control_fields`: PSS/E's
-`RMI`/`RMA`/`VMI`/`VMA` are already expressed in the unit `control_objective` implies
-(dimensionless tap ratio or radians for `RMI`/`RMA`; pu/MVAr/MW for `VMI`/`VMA` depending
-on the control type), so every value here is a direct passthrough once the correct unit
-per `_CONTROL_LIMITS_UNIT`/`_CONTROLLED_QUANTITY_LIMITS_UNIT` is supplied — `record` names
-the site in the one warning PSCB itself would log; the diagnostic name is our own,
-matching PSCB's intent (record identity, not message text) but not the literal string.
+`RMI`/`RMA`/`VMI`/`VMA` are already expressed in the unit `control_objective` implies, so
+every value is a direct passthrough once `_CONTROL_LIMITS_UNIT`/
+`_CONTROLLED_QUANTITY_LIMITS_UNIT` supply that unit. `record` names the site in the
+inverted-limits warnings.
 """
 function _set_transformer_control_fields!(
     circuit,
