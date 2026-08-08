@@ -267,17 +267,18 @@ end
     @test PFP.get_value(vsc, :rated_dc_voltage) == 100.0
 end
 
-@testset "TwoTerminalVSCLine: make_vscline! no longer throws once DC_VOLTAGE is selected" begin
-    # PowerOperationsOpenAPIModels.jl's units.jl now completes the DC_VOLTAGE
-    # branch of dc_setpoint_from (voltage_units defaults to NATURAL_UNITS, so
-    # dc_setpoint_from resolves to declared unit "kV"), so the reader's
-    # hardcoded "kV" tag on dc_branch.jl's dc_setpoint_from assignment now
-    # finds a home instead of erroring. This only regression-guards that the
-    # call succeeds; it does not assert the stored number is physically
-    # correct kV -- see dc_branch.jl's docstring for the recorded gap between
-    # what PSS/E actually supplies in this mode (p.u. of rated_dc_voltage,
-    # confirmed by psse.jl's own `from_bus["DCSET"] / base_voltage`) and what
-    # the reader currently tags it as.
+@testset "TwoTerminalVSCLine: make_vscline! still refuses DC_VOLTAGE/AC_VOLTAGE, now loudly by design" begin
+    # PowerOperationsOpenAPIModels.jl's units.jl now completes the DC_VOLTAGE/
+    # AC_VOLTAGE branches (voltage_units defaults to NATURAL_UNITS, so
+    # dc_setpoint_from/ac_setpoint_from would resolve to declared unit "kV"
+    # without complaint), so set_value!(..., "kV") would no longer error on
+    # its own -- it would silently store a value that is actually p.u. (of
+    # rated_dc_voltage for DC_VOLTAGE, of the AC bus base for AC_VOLTAGE)
+    # under a "kV" tag. That is exactly the silent-wrong-value pattern the
+    # psy6 non-negotiables forbid, so make_vscline! now raises its own loud
+    # `error()` for both modes instead of leaning on the (now closed) codegen
+    # gap -- see dc_branch.jl's RECORDED GAP docstring note and
+    # `_vsc_voltage_control_unsupported`.
     data = Dict{String, Any}(
         "baseMVA" => 100.0, "source_type" => "pti",
         "bus" => Dict{String, Any}(
@@ -301,11 +302,29 @@ end
     from_id = PFP.get_bus_id(reg, 1)
     to_id = PFP.get_bus_id(reg, 2)
 
-    d = _synthetic_vscline_dict()
-    d["dc_voltage_control_from"] = true
-    PFP.make_vscline!(sys, reg, "vsc2", d, from_id, to_id, 100.0)
-    vsc = only(PFP.get_components(sys, "TwoTerminalVSCLine"))
-    @test PFP.get_value(vsc, :dc_control_from) == "DC_VOLTAGE"
+    d_dc = _synthetic_vscline_dict()
+    d_dc["dc_voltage_control_from"] = true
+    @test_throws ErrorException PFP.make_vscline!(
+        sys,
+        reg,
+        "vsc2",
+        d_dc,
+        from_id,
+        to_id,
+        100.0,
+    )
+
+    d_ac = _synthetic_vscline_dict()
+    d_ac["ac_voltage_control_from"] = true
+    @test_throws ErrorException PFP.make_vscline!(
+        sys,
+        reg,
+        "vsc3",
+        d_ac,
+        from_id,
+        to_id,
+        100.0,
+    )
 end
 
 @testset "TwoTerminalVSCLine: dc_setpoint_from/to convert correctly under DC_VOLTAGE and DC_VOLTAGE_DROOP" begin
