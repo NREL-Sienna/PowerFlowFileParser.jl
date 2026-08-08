@@ -9,12 +9,9 @@ Ids come from a single counter shared by every type, matching GridDB's `entities
 where an id identifies a component without also needing its type. This is why a bus
 number cannot double as an id.
 
-The counter itself lives on `document`: `PC.SystemDocument` owns id allocation for the
-document it produces, so this registry delegates every id it hands out rather than
-keeping a second counter that could drift from the document's.
-
-Not serialized: every field but `document` is recoverable from the emitted document,
-and `document` is serialized on its own terms.
+Id allocation is delegated to `document` rather than kept in a second counter that could
+drift from the document's own. Not serialized: every lookup index here is recoverable
+from the emitted document.
 """
 struct IdRegistry
     document::PC.SystemDocument

@@ -1,21 +1,15 @@
-# Mandatory emit-layer-plan-gate fixture (task 13d item 4): `modified_14bus_system.raw`'s
-# only 2W transformers are all CZ=1/CW=1/CM=1 with `base_power == sys_mbase == 100.0`
-# (see test_openapi_branch.jl's own comment on this), so nothing on hand exercised
-# CZ∈{2,3}, CW∈{2,3}, CM=2, or a 2W transformer whose device base differs from the system
-# base — exactly the condition under which a completely missing device-base conversion
-# passes silently (MBASE-style fields default to the system base, per
-# `pti.jl:1700-1701`'s generator MBASE default; the transformer analogue is SBASE1-2,
-# which PSS/E's own `_psse2pm_transformer!` defaults to `baseMVA` the same way when zero).
-# `synthetic_v35_transformer_discriminators.raw` is a synthetic v35 PSS/E case built for
-# this task: two 2W transformers, both with SBASE1-2 != the 100 MVA system base, plus a
-# two-terminal DC line with MDC=2 (current-controlled, vs. every other fixture's MDC=1).
+# `modified_14bus_system.raw`'s only 2W transformers are all CZ=1/CW=1/CM=1 with
+# `base_power == sys_mbase == 100.0`, so nothing on hand exercised CZ∈{2,3}, CW∈{2,3},
+# CM=2, or a 2W transformer whose device base differs from the system base — exactly the
+# condition under which a completely missing device-base conversion passes silently.
+# `synthetic_v35_transformer_discriminators.raw` covers it: two 2W transformers with
+# SBASE1-2 != the 100 MVA system base, plus a two-terminal DC line with MDC=2
+# (current-controlled, vs. every other fixture's MDC=1).
 #
-# All of the discriminator arithmetic below is transcribed directly from
-# `pm_io/psse.jl`'s `_psse2pm_transformer!` (CZ/CW/CM branches, ~line 1019-1300) and
-# `_psse2pm_dcline!` (MDC branch, ~line 1836-1955) — the SAME formulas the parser runs,
-# evaluated independently here from the raw fixture's literal field values, not by calling
-# back into the parser's own functions. Every intermediate value was cross-checked against
-# the actual parsed `pm.data` dict for this fixture (see the task-13d report).
+# The discriminator arithmetic below is transcribed from `pm_io/psse.jl`'s
+# `_psse2pm_transformer!` (CZ/CW/CM branches) and `_psse2pm_dcline!` (MDC branch) — the
+# SAME formulas the parser runs, evaluated independently here from the fixture's literal
+# field values rather than by calling back into the parser.
 
 const TRANSFORMER_DISCRIMINATOR_FIXTURE =
     joinpath(@__DIR__, "fixtures", "synthetic_v35_transformer_discriminators.raw")

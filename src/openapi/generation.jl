@@ -7,13 +7,11 @@
 # baseMVA (same `_make_per_unit!` correction topology.jl documents). PSCB's own PSY
 # objects store generator/storage power fields in *device-base* per-unit (per-unit on the
 # component's own `mbase`), converting the raw system-pu value by `base_conversion =
-# sys_mbase / mbase` — so `_natural_value` below always finishes that conversion by
-# multiplying the device-base-pu number PSCB would have stored by the same `mbase`, which
-# is exactly what a `get_X(component, PSY.NU)` call on the oracle's real PSY component
-# would return. This holds even where PSCB's own arithmetic is a documented bug (see the
-# two `# Bug-compatible` sites below): the natural-units value this file emits is checked,
-# call by call, against what the actual oracle object's NU-getter produces — see the
-# task report's synthetic-fixture verification.
+# sys_mbase / mbase` — so `_natural_value` below finishes that conversion by multiplying
+# the device-base-pu number PSCB would have stored by the same `mbase`, which is exactly
+# what a `get_X(component, PSY.NU)` call on the oracle's real PSY component returns. This
+# holds even where PSCB's own arithmetic is a documented bug (the `# Bug-compatible` sites
+# below).
 
 """Table spellings that are not the schema's enum value for a prime mover. Reused from
 PowerTableDataParser's `src/openapi/generation.jl`, which already mirrors PSCB's
@@ -69,9 +67,9 @@ _natural_value(value::Real, base::Float64) = value * base
 _natural_value(limits::NamedTuple, base::Float64) = map(v -> v * base, limits)
 _natural_value(::Nothing, ::Float64) = nothing
 
-"""Assign an optional compound property (`ramp_limits`, absent when PSCB's
-`calculate_ramp_limit` finds nothing to use), skipping `set_value!` entirely when there is
-nothing to assign — mirrors PowerTableDataParser's `_set_optional_limits!`."""
+"""Assign an optional compound property (`ramp_limits`, absent when
+`calculate_ramp_limit` finds nothing to use), skipping `set_value!` when there is
+nothing to assign."""
 function _set_optional_limits!(component, prop::Symbol, limits, base::Float64,
     unit::AbstractString)
     natural = _natural_value(limits, base)
@@ -83,11 +81,8 @@ function _set_optional_limits!(component, prop::Symbol, limits, base::Float64,
 end
 
 """
-Default component name from a pm dict entry.
-
-Ported verbatim from PSCB's `_get_pm_dict_name`. The `"shunt_bus"` branch is scaffolding
-for a later shunt reader (PSCB's own function is shared the same way); nothing in this
-file has a `"shunt_bus"` key.
+Default component name from a pm dict entry. Ported verbatim from PSCB's
+`_get_pm_dict_name`; the `"shunt_bus"` branch serves shunt.jl's readers, which share it.
 """
 function _get_pm_dict_name(d::Dict)::String
     if haskey(d, "shunt_bus")
@@ -138,13 +133,9 @@ end
 Ramp limits from whichever of `"ramp_agc"`/`"ramp_10"`/`"ramp_30"` is present, falling
 back to `abs(pmax)`, or `nothing` if `pmax` is also zero.
 
-Ported verbatim from PSCB's `calculate_ramp_limit`, including its own inconsistency: the
-three named columns are used exactly as pm states them (no `base_conversion`), while the
-`pmax` fallback is *also* used exactly as pm states it — meaning both branches are, in
-effect, on whatever base the source column already carries, unlike every other
-`calculate_*`/`make_*` field in this file. Not one of the three bug-compatible sites named
-in the sub-task brief, so not marked as one; ported as-is because the brief scopes
-oracle-equivalence to the whole reader, not only the three named sites.
+Ported verbatim from PSCB's `calculate_ramp_limit`, including its own inconsistency: both
+branches use the source value exactly as pm states it (no `base_conversion`), unlike every
+other `calculate_*`/`make_*` field in this file.
 """
 function calculate_ramp_limit(d::Dict, gen_name::AbstractString)
     if haskey(d, "ramp_agc")

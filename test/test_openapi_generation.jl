@@ -1,20 +1,9 @@
-# Tests for src/openapi/generation.jl and src/openapi/cost.jl (task 13b).
-#
 # The oracle bug-compatible sites (renewable rating double `base_conversion`, generic
 # battery's raw `thermal_rating` as both `rating` and `base_power`) are invisible on every
-# real fixture on hand: every real generator/storage entry states `mbase`/`thermal_rating`
-# equal to the system base, which makes `base_conversion == 1.0` and collapses the bug
-# into the non-buggy answer. Both bugs are instead verified against a synthetic generator
-# with `mbase != sys_mbase`, with expected numbers cross-checked directly against PSCB's
-# real oracle (`PowerSystemCaseBuilder.make_renewable_dispatch`/`make_generic_battery`
-# run against the identical input, in PSCB's own environment) — see the task report's
-# bug table for the exact commands and oracle output.
-
-const FOURTEEN_BUS_FIXTURE_GEN = joinpath(@__DIR__, "modified_14bus_system.raw")
-
-function _fourteen_bus_pm_data_gen()
-    return PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE_GEN)
-end
+# real fixture on hand: each states `mbase`/`thermal_rating` equal to the system base,
+# making `base_conversion == 1.0` and collapsing the bug into the non-buggy answer. Both
+# are instead verified against a synthetic generator with `mbase != sys_mbase`, whose
+# expected numbers were cross-checked against PSCB's real oracle on identical input.
 
 function _bus_component(sys, number::Int)
     return only(
@@ -42,7 +31,7 @@ function _register_test_bus!(sys::PFP.OpenAPISystem)
 end
 
 @testset "read_generation! on the 14-bus fixture makes only ThermalStandard" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data_gen())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     @test length(PFP.get_components(sys, "ThermalStandard")) == 7
     for t in (
         "HydroDispatch", "RenewableDispatch", "RenewableNonDispatch",
@@ -53,8 +42,8 @@ end
 end
 
 @testset "ThermalStandard fields convert system pu to natural units, mbase == sys_mbase" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data_gen())
-    data = _fourteen_bus_pm_data_gen().data
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
+    data = fourteen_bus_pm_data().data
     sys_mbase = PFP.get_base_power(sys)
     for gen in PFP.get_components(sys, "ThermalStandard")
         d = only(
@@ -84,7 +73,7 @@ end
     # Every gen has cost=[100.0, 0.0], ncost=2, mbase == sys_mbase == 100: PowerModels'
     # own per-unit correction scaled the synthetic PSS/E default (proportional_term=1.0,
     # constant_term=0.0) by mva_base, and PSCB's `/ sys_mbase^i` undoes exactly that.
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data_gen())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     for gen in PFP.get_components(sys, "ThermalStandard")
         # `set_value!` routes `operation_cost` through OpenAPI.jl's oneOf `setproperty!`,
         # which wraps the assigned `PC.ThermalGenerationCost` in a
@@ -373,7 +362,7 @@ end
 end
 
 @testset "build_openapi_system's unconsumed-section check does not name load/gen/storage" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data_gen())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     @test "ThermalStandard" in PFP.component_type_names(sys)
     # Does not throw: load/gen/storage/distributed_generation are all fully read by
     # read_loads!/read_generation!.
@@ -391,7 +380,7 @@ end
 end
 
 @testset "a fresh 14-bus document with loads and generators round-trips through PC" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data_gen())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     PFP.PC.validate_document(PFP.get_document(sys))
     path = joinpath(mktempdir(), "fourteen_bus_gen.json")
     PFP.to_json(sys, path)

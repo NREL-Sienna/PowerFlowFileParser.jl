@@ -6,39 +6,22 @@
 # references that table via its own `correction_table`/`primary_correction_table`/
 # `secondary_correction_table`/`tertiary_correction_table` field.
 #
-# PSCB's `_impedance_correction_table_lookup` pre-builds exactly one `ImpedanceCorrectionData`
-# instance per (table_number, winding) pair and reuses that SAME instance for every
-# transformer that references it — verified empirically against the real oracle on
-# `modified_14bus_system.raw`: table 8 is referenced as the secondary-winding correction
-# table by BOTH 3W transformers in that fixture, and the built `System` carries exactly
-# ONE `ImpedanceCorrectionData` for `(8, SECONDARY_WINDING)`, shared across both, not two
-# separate objects (8 distinct attributes for 9 attachments — one table shared twice, the
-# other seven each used once). This reader reproduces that sharing: one attribute id per
-# (table_number, winding), created lazily on first reference and re-associated (a new
-# `SupplementalAttributeAssociation` row against the same `attribute_id`) on every
-# subsequent one — never a second `ImpedanceCorrectionData` object for the same pair.
-#
-# `add_supplemental_attribute!`'s `group_index`/`role` (`container.jl`) do NOT apply to
-# this association: those two exist for plant/service memberships this parser never
-# produces (a service membership row or a plant-family grouping), and an
-# impedance-correction link is a plain attribute-to-transformer association — so the one
-# `add_supplemental_attribute!` call below (the first sighting of a given (table, winding)
-# pair) leaves both at their `nothing` default, same as every other
-# `add_supplemental_attribute!` call site in this codebase. Every subsequent sighting of
-# the same pair reuses `add_service_association!`'s low-level pattern instead — pushing a
-# `SupplementalAttributeAssociation` row directly, since the attribute component already
-# exists.
+# PSCB's `_impedance_correction_table_lookup` builds exactly ONE `ImpedanceCorrectionData`
+# instance per (table_number, winding) pair and reuses it for every transformer that
+# references it — verified against the real oracle on `modified_14bus_system.raw`, where
+# table 8 is the secondary-winding table of both 3W transformers and the built `System`
+# carries 8 attributes for 9 attachments. This reader reproduces that sharing: one
+# attribute id per pair, created lazily on first reference, with an extra
+# `SupplementalAttributeAssociation` row on every subsequent one.
 #
 # GeographicInfo (`data["substation"]`) is NOT read here — see
-# `KNOWN_UNCONSUMED_PM_SECTIONS` in build.jl for why "substation" is allow-listed rather
-# than implemented in this pass.
+# `KNOWN_UNCONSUMED_PM_SECTIONS` in build.jl.
 
 """
 One piecewise-linear curve and control-mode per impedance-correction table number.
 Ported from PSCB's `_impedance_correction_table_lookup` (:213-261), minus the per-winding
-pre-expansion (see file header) — that expansion is done lazily by
-[`_impedance_correction_attribute_id!`](@ref) instead, only for (table, winding) pairs a
-transformer actually references.
+pre-expansion — [`_attach_impedance_correction!`](@ref) does that lazily, only for
+(table, winding) pairs a transformer actually references.
 """
 function _impedance_correction_curves(data::Dict)
     curves = Dict{Int, Tuple{PC.PiecewiseLinearData, String}}()
@@ -71,27 +54,6 @@ function _impedance_correction_curves(data::Dict)
         curves[table_number] = (curve, control_mode)
     end
     return curves
-end
-
-"""Push a `SupplementalAttributeAssociation` row against an already-registered
-`ImpedanceCorrectionData` id, without creating a second attribute — the reuse path for a
-(table, winding) pair this reader has already attached once. Mirrors
-`add_service_association!`'s (`container.jl`) low-level push, for the same reason: the
-"attribute" here already exists, so only the association is new."""
-function _add_impedance_correction_association!(
-    sys::OpenAPISystem,
-    attribute_id::Int,
-    entity_id::Int,
-)
-    push!(
-        get_document(sys).supplemental_attribute_associations,
-        PC.SupplementalAttributeAssociation(;
-            attribute_id = attribute_id,
-            entity_id = entity_id,
-            attribute_type = "ImpedanceCorrectionData",
-        ),
-    )
-    return
 end
 
 """
@@ -145,7 +107,15 @@ function _attach_impedance_correction!(
     end
     key = (table_number, winding)
     if haskey(cache, key)
-        _add_impedance_correction_association!(sys, cache[key], transformer_id)
+        # The attribute already exists, so only the association row is new.
+        push!(
+            get_document(sys).supplemental_attribute_associations,
+            PC.SupplementalAttributeAssociation(;
+                attribute_id = cache[key],
+                entity_id = transformer_id,
+                attribute_type = "ImpedanceCorrectionData",
+            ),
+        )
     else
         cache[key] =
             _new_impedance_correction_attribute!(sys, curves, table_number, winding,
@@ -157,14 +127,11 @@ end
 """
 Attach `ImpedanceCorrectionData` supplemental attributes to every `TwoWindingTransformer`/
 `ThreeWindingTransformer` that references an impedance-correction table. Ported from
-PSCB's `_attach_impedance_correction_tables!` (:294-330), driven here by re-walking
-`data["branch"]`/`data["3w_transformer"]` (rather than PSCB's inline call from within its
-own transformer readers) since [`read_branches!`](@ref)/[`read_3w_transformers!`](@ref)
-have already registered every transformer by name by the time this stage runs — the name
-derivation below must therefore match theirs exactly, including the same
-`branch_name_formatter`/`xfrm_3w_name_formatter` override.
-
-Runs after every other reader in [`build_openapi_system`](@ref).
+PSCB's `_attach_impedance_correction_tables!` (:294-330), but driven by re-walking
+`data["branch"]`/`data["3w_transformer"]` rather than called inline from the transformer
+readers — so the name derivation below must match
+[`read_branches!`](@ref)/[`read_3w_transformers!`](@ref) exactly, same formatter kwargs
+included.
 """
 function read_attributes!(sys::OpenAPISystem, data::Dict; kwargs...)
     curves = _impedance_correction_curves(data)

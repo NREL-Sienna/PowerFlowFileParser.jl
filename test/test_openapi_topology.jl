@@ -1,11 +1,5 @@
-const FOURTEEN_BUS_FIXTURE = joinpath(@__DIR__, "modified_14bus_system.raw")
-
-function _fourteen_bus_pm_data()
-    return PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE)
-end
-
 @testset "build_openapi_system reads topology, loads, generation, branches, transformers, switches/breakers, dc lines, shunts, and attributes" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     @test PFP.component_type_names(sys) == [
         "ACBus", "Arc", "Area", "DiscreteControlledACBranch", "FACTSControlDevice",
         "FixedAdmittance", "Line", "LoadZone", "StandardLoad", "SwitchedAdmittance",
@@ -36,7 +30,7 @@ end
 end
 
 @testset "build_openapi_system errors on a genuinely unknown, non-empty pm dict section" begin
-    data = _fourteen_bus_pm_data().data
+    data = fourteen_bus_pm_data().data
     data["totally_unknown_section"] = Dict{String, Any}("1" => Dict{String, Any}())
     pm_data = PFP.PowerModelsData(data)
     err = try
@@ -51,7 +45,7 @@ end
 end
 
 @testset "_check_unconsumed_sections passes for every section either consumed or on KNOWN_UNCONSUMED_PM_SECTIONS" begin
-    data = _fourteen_bus_pm_data().data
+    data = fourteen_bus_pm_data().data
     only_known = Dict{String, Any}(
         (key => data[key] for key in PFP._CONSUMED_PM_SECTIONS if haskey(data, key))...,
     )
@@ -66,7 +60,7 @@ end
 end
 
 @testset "_check_unconsumed_sections passes for scalar pm dict keys and empty sections" begin
-    data = _fourteen_bus_pm_data().data
+    data = fourteen_bus_pm_data().data
     only_consumed = Dict{String, Any}(
         "bus" => data["bus"],
         "totally_unknown_but_empty" => Dict{String, Any}(),
@@ -87,7 +81,7 @@ end
 end
 
 @testset "LoadZone peak sums bus loads and converts system pu to MW/MVAr" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     zone = only(PFP.get_components(sys, "LoadZone"))
     # Cross-checked against PowerSystemCaseBuilder's oracle: 34.8 / -8.62 pu on a
     # 100 MVA base.
@@ -97,7 +91,7 @@ end
 end
 
 @testset "Area gets a zero peak, matching the oracle's asymmetry with LoadZone" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     area = only(PFP.get_components(sys, "Area"))
     @test PFP.get_value(area, :peak_active_power) == 0.0
     @test PFP.get_value(area, :peak_reactive_power) == 0.0
@@ -105,8 +99,8 @@ end
 end
 
 @testset "ACBus fields come off the pm dict with the declared units" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
-    data = _fourteen_bus_pm_data().data
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
+    data = fourteen_bus_pm_data().data
     reg = PFP.get_registry(sys)
     for bus in PFP.get_components(sys, "ACBus")
         number = PFP.get_value(bus, :number)
@@ -121,7 +115,7 @@ end
 end
 
 @testset "ACBus resolves area and load zone to registered ids" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     reg = PFP.get_registry(sys)
     area_id = PFP.get_id(reg, "Area", "1")
     zone_id = PFP.get_id(reg, "LoadZone", "1")
@@ -132,8 +126,8 @@ end
 end
 
 @testset "bus_type 3 (REF) maps to the schema's REF string" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
-    data = _fourteen_bus_pm_data().data
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
+    data = fourteen_bus_pm_data().data
     for bus in PFP.get_components(sys, "ACBus")
         number = PFP.get_value(bus, :number)
         expected = PFP._bustype_name(Int(data["bus"][number]["bus_type"]))
@@ -142,8 +136,8 @@ end
 end
 
 @testset "an unavailable bus (bus_status = false) sets available = false" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
-    data = _fourteen_bus_pm_data().data
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
+    data = fourteen_bus_pm_data().data
     for bus in PFP.get_components(sys, "ACBus")
         number = PFP.get_value(bus, :number)
         @test PFP.get_value(bus, :available) ==
@@ -203,7 +197,7 @@ end
 
 @testset "bus_name_formatter, area_name_formatter and loadzone_name_formatter thread through" begin
     sys = PFP.build_openapi_system(
-        _fourteen_bus_pm_data();
+        fourteen_bus_pm_data();
         bus_name_formatter = d -> "BUS_$(d["bus_i"])",
         area_name_formatter = a -> "AREA_$a",
         loadzone_name_formatter = z -> "ZONE_$z",
@@ -218,7 +212,7 @@ end
     # Topology only (no branches/transformers/dc lines) so the Arc census this test
     # asserts is self-contained; `build_openapi_system` now creates real arcs of its own
     # (task 13c), which would make a fixed expected count fragile.
-    data = _fourteen_bus_pm_data().data
+    data = fourteen_bus_pm_data().data
     sys = PFP.OpenAPISystem(Float64(data["baseMVA"]))
     PFP.read_loadzones!(sys, data)
     PFP.read_bus!(sys, data)
@@ -237,7 +231,7 @@ end
 end
 
 @testset "the emitted document round-trips through PC and validates" begin
-    sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     path = joinpath(mktempdir(), "fourteen_bus.json")
     PFP.to_json(sys, path)
     doc = PFP.PC.read_document(path)

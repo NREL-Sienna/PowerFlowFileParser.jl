@@ -1,15 +1,5 @@
-const FOURTEEN_BUS_FIXTURE_DC_SHUNT = joinpath(@__DIR__, "modified_14bus_system.raw")
-
-_fourteen_bus_pm_data_dc_shunt() = PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE_DC_SHUNT)
-
-"""Compound OpenAPI values (`MinMax`, `FromTo_ToFrom`, `ComplexNumber`, ...) are
-generated structs, not `NamedTuple`s — compare them to a `NamedTuple` field-by-field
-rather than via `==`, which would always be `false` across the two types."""
-_matches_nt(value, nt::NamedTuple) =
-    all(getproperty(value, k) == v for (k, v) in pairs(nt))
-
 @testset "TwoTerminalLCCLine: custom PSS/E-native fields passthrough, native pf ×baseMVA" begin
-    pm = _fourteen_bus_pm_data_dc_shunt()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     d = only(values(pm.data["dcline"]))
     line = only(PFP.get_components(sys, "TwoTerminalLCCLine"))
@@ -66,7 +56,7 @@ end
 end
 
 @testset "FixedAdmittance: PSS/E-native DEVICE_MVAR Y, no scaling" begin
-    pm = _fourteen_bus_pm_data_dc_shunt()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     d = only(v for v in values(pm.data["shunt"]) if v["shunt_bus"] == 111)
     shunt = only(
@@ -79,7 +69,7 @@ end
 end
 
 @testset "SwitchedAdmittance: control mode mapping, Y_increase array conversion, admittance_limits passthrough" begin
-    pm = _fourteen_bus_pm_data_dc_shunt()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     d = only(v for v in values(pm.data["switched_shunt"]) if v["shunt_bus"] == 101)
     @test d["control_mode"] == 1
@@ -110,7 +100,7 @@ end
 end
 
 @testset "FACTSControlDevice: PSS/E MODE 0/1/2 maps to OOS/NML/BYP" begin
-    pm = _fourteen_bus_pm_data_dc_shunt()
+    pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     d = only(values(pm.data["facts"]))
     @test d["control_mode"] == 1
