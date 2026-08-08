@@ -201,10 +201,8 @@ end
     @test isempty(PFP.get_components(sys, "AreaInterchange"))
 end
 
-"""Minimal synthetic `vscline` entry restricted to the DC_POWER/AC_REACTIVE_POWER case —
-the only branch `PowerOperationsOpenAPIModels.jl`'s generated `units.jl` completes for
-`dc_setpoint_from`/`ac_setpoint_from` today (see dc_branch.jl's NEEDS_CONTEXT note). No
-fixture on hand carries a `vscline` section."""
+"""Minimal synthetic `vscline` entry for the DC_POWER/AC_REACTIVE_POWER case. No fixture
+on hand carries a `vscline` section."""
 function _synthetic_vscline_dict()
     return Dict{String, Any}(
         "available" => true,
@@ -269,7 +267,17 @@ end
     @test PFP.get_value(vsc, :rated_dc_voltage) == 100.0
 end
 
-@testset "TwoTerminalVSCLine: DC_VOLTAGE mode hits the documented PC/PO codegen gap, not a silent skip" begin
+@testset "TwoTerminalVSCLine: make_vscline! no longer throws once DC_VOLTAGE is selected" begin
+    # PowerOperationsOpenAPIModels.jl's units.jl now completes the DC_VOLTAGE
+    # branch of dc_setpoint_from (voltage_units defaults to NATURAL_UNITS, so
+    # dc_setpoint_from resolves to declared unit "kV"), so the reader's
+    # hardcoded "kV" tag on dc_branch.jl's dc_setpoint_from assignment now
+    # finds a home instead of erroring. This only regression-guards that the
+    # call succeeds; it does not assert the stored number is physically
+    # correct kV -- see dc_branch.jl's docstring for the recorded gap between
+    # what PSS/E actually supplies in this mode (p.u. of rated_dc_voltage,
+    # confirmed by psse.jl's own `from_bus["DCSET"] / base_voltage`) and what
+    # the reader currently tags it as.
     data = Dict{String, Any}(
         "baseMVA" => 100.0, "source_type" => "pti",
         "bus" => Dict{String, Any}(
@@ -295,13 +303,74 @@ end
 
     d = _synthetic_vscline_dict()
     d["dc_voltage_control_from"] = true
-    @test_throws ErrorException PFP.make_vscline!(
-        sys,
-        reg,
-        "vsc2",
-        d,
-        from_id,
-        to_id,
-        100.0,
-    )
+    PFP.make_vscline!(sys, reg, "vsc2", d, from_id, to_id, 100.0)
+    vsc = only(PFP.get_components(sys, "TwoTerminalVSCLine"))
+    @test PFP.get_value(vsc, :dc_control_from) == "DC_VOLTAGE"
+end
+
+@testset "TwoTerminalVSCLine: dc_setpoint_from/to convert correctly under DC_VOLTAGE and DC_VOLTAGE_DROOP" begin
+    # psse.jl's own VSC parsing (src/pm_io/psse.jl:2083-2097) documents this
+    # exactly: "PSY documents dc_setpoint_from/to as p.u. of rated_dc_voltage
+    # for the DC-voltage-controlling side (TYPE = 1)", computed there as
+    # `from_bus["DCSET"] / base_voltage`. Hand math: DCSET = 515.0 kV,
+    # base_voltage (rated_dc_voltage) = 500.0 kV => 515.0 / 500.0 = 1.03 p.u.
+    # That division already produces the number PSY expects, so passing it
+    # through set_value! with unit "pu" is an identity conversion: source
+    # unit "pu" equals the DEVICE_BASE-branch declared unit "pu", and "pu"
+    # carries no fixed conversion factor (to_default: null in
+    # Core/units.json) -- there is nothing left to scale.
+    vsc = PFP.PO.TwoTerminalVSCLine()
+    PFP.set_value!(vsc, :dc_control_from, "DC_VOLTAGE")
+    PFP.set_value!(vsc, :voltage_units, "DEVICE_BASE")
+    PFP.set_value!(vsc, :dc_setpoint_from, 515.0 / 500.0, "pu")
+    @test PFP.get_value(vsc, :dc_setpoint_from) == 1.03
+
+    # NATURAL_UNITS is the schema's other DC-voltage basis: dc_setpoint_from
+    # is then a literal kV magnitude. "kV" is both the source and the
+    # DC_VOLTAGE/NATURAL_UNITS-branch declared unit (to_default 1.0 on both
+    # sides), so this is also an identity conversion.
+    PFP.set_value!(vsc, :voltage_units, "NATURAL_UNITS")
+    PFP.set_value!(vsc, :dc_setpoint_from, 515.0, "kV")
+    @test PFP.get_value(vsc, :dc_setpoint_from) == 515.0
+
+    # DC_VOLTAGE_DROOP shares the exact same nested voltage_units branch as
+    # DC_VOLTAGE in TwoTerminalVSCLine.json's dc_setpoint_from annotation;
+    # confirm the emitter's recursive walk produced the same result for it.
+    PFP.set_value!(vsc, :dc_control_from, "DC_VOLTAGE_DROOP")
+    PFP.set_value!(vsc, :voltage_units, "DEVICE_BASE")
+    PFP.set_value!(vsc, :dc_setpoint_from, 1.03, "pu")
+    @test PFP.get_value(vsc, :dc_setpoint_from) == 1.03
+
+    # dc_setpoint_to shares TwoTerminalVSCLine's one voltage_units field with
+    # dc_setpoint_from but has its own dc_control_to discriminator.
+    PFP.set_value!(vsc, :dc_control_to, "DC_VOLTAGE")
+    PFP.set_value!(vsc, :dc_setpoint_to, 1.03, "pu")
+    @test PFP.get_value(vsc, :dc_setpoint_to) == 1.03
+end
+
+@testset "TwoTerminalVSCLine: ac_setpoint_from/to convert correctly under AC_VOLTAGE" begin
+    # psse.jl: `sub_data["ac_setpoint_from"] = from_bus["ACSET"]` -- PSS/E's
+    # ACSET for a VSC converter bus is already per-unit of the AC bus's own
+    # base voltage (the same PSS/E convention as bus VM), so no scaling
+    # happens before this value reaches PSY. Passing "pu" here is again an
+    # identity: source unit "pu" equals the AC_VOLTAGE/DEVICE_BASE-branch
+    # declared unit "pu".
+    vsc = PFP.PO.TwoTerminalVSCLine()
+    PFP.set_value!(vsc, :ac_control_from, "AC_VOLTAGE")
+    PFP.set_value!(vsc, :voltage_units, "DEVICE_BASE")
+    PFP.set_value!(vsc, :ac_setpoint_from, 1.02, "pu")
+    @test PFP.get_value(vsc, :ac_setpoint_from) == 1.02
+
+    # NATURAL_UNITS basis: ac_setpoint_from would be a literal kV magnitude
+    # (e.g. 1.02 p.u. x 138.0 kV bus base = 140.76 kV); identity again since
+    # source and declared units both resolve to "kV".
+    PFP.set_value!(vsc, :voltage_units, "NATURAL_UNITS")
+    PFP.set_value!(vsc, :ac_setpoint_from, 1.02 * 138.0, "kV")
+    @test PFP.get_value(vsc, :ac_setpoint_from) == 140.76
+
+    # ac_setpoint_to mirrors ac_setpoint_from; voltage_units is shared across
+    # both sides of the component, ac_control_to is independent.
+    PFP.set_value!(vsc, :ac_control_to, "AC_VOLTAGE")
+    PFP.set_value!(vsc, :ac_setpoint_to, 1.02 * 138.0, "kV")
+    @test PFP.get_value(vsc, :ac_setpoint_to) == 140.76
 end
