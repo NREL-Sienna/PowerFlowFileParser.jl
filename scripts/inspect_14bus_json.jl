@@ -11,14 +11,12 @@
 #   <case>.NATURAL_UNITS.json       OpenAPI document, unit_system = NATURAL_UNITS
 #   <case>.DEVICE_BASE.json         OpenAPI document, unit_system = DEVICE_BASE
 #
-# READ THIS FIRST — the two OpenAPI documents currently carry NO components.
-# `.claude/plans/2026-07-30-openapi-json-export-design.md` specifies an emit layer
-# (`src/openapi/build.jl` plus `read_*!` readers) that does not exist yet: only the
-# container/identity/units/serialize infrastructure is in place. Until those land,
-# nothing populates an `OpenAPISystem` from a parsed case, so the OpenAPI files show
-# the document envelope and the `unit_system` switch working end to end, and an empty
-# `components` map. The `.pm.json` file is the one with real content today, and it is
-# where parser behaviour is visible.
+# Both OpenAPI documents are now built via `build_openapi_system` (the emit layer
+# landed across tasks 13a-13d) and carry real components — buses, loads, generators,
+# branches, transformers, dc lines, shunts, and the `ImpedanceCorrectionData`/
+# `DiscreteControlledACBranch` shapes 13d added. `../power-openapi-models/scripts/
+# check_json_compat.py` reads this directory's `*.json` (excluding `.pm.json`/
+# `.roundtrip.json`) to validate Julia's output against the generated Python models.
 
 import JSON
 using PowerFlowFileParser
@@ -117,27 +115,20 @@ function main(argv)
     println("\nWriting JSON:")
     write_json(joinpath(opts.out, "$stem.pm.json"), data)
 
-    # The OpenAPI envelope in both unit systems. base_power comes from the case so
-    # the document reports the same base the parse used.
-    base_power = Float64(get(data, "baseMVA", 100.0))
+    # The OpenAPI envelope in both unit systems, built from the same parsed case via the
+    # full emit layer.
     for unit_system in UNIT_SYSTEMS
-        sys = OpenAPISystem(base_power; unit_system = unit_system)
+        sys = build_openapi_system(pm; unit_system = unit_system)
         path = joinpath(opts.out, "$stem.$unit_system.json")
         to_json(sys, path; force = true, pretty = true)
         println("  wrote $(relpath(path)) ($(round(filesize(path) / 1024; digits = 1)) KiB)")
+        println(
+            "    components: $(join(PowerFlowFileParser.component_type_names(sys), ", "))",
+        )
     end
 
     summarize_pm(data)
     summarize_shunts(data)
-
-    println("""
-
-    NOTE: the two OpenAPI documents have an empty `components` map. The emit layer
-    described in .claude/plans/2026-07-30-openapi-json-export-design.md
-    (build_openapi_system + read_*! readers) is not implemented yet, so nothing
-    populates an OpenAPISystem from a parsed case. Inspect $stem.pm.json for
-    parsed content; the OpenAPI files confirm the envelope and the unit_system
-    switch, not the component mapping.""")
     return nothing
 end
 

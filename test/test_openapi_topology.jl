@@ -4,21 +4,23 @@ function _fourteen_bus_pm_data()
     return PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE)
 end
 
-@testset "build_openapi_system reads topology, loads, generation, branches, transformers, dc lines, and shunts" begin
+@testset "build_openapi_system reads topology, loads, generation, branches, transformers, switches/breakers, dc lines, shunts, and attributes" begin
     sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
     @test PFP.component_type_names(sys) == [
-        "ACBus", "Arc", "Area", "FACTSControlDevice", "FixedAdmittance", "Line",
-        "LoadZone", "StandardLoad", "SwitchedAdmittance", "ThermalStandard",
-        "ThreeWindingTransformer", "TransformerCircuit", "TwoTerminalLCCLine",
-        "TwoWindingTransformer",
+        "ACBus", "Arc", "Area", "DiscreteControlledACBranch", "FACTSControlDevice",
+        "FixedAdmittance", "Line", "LoadZone", "StandardLoad", "SwitchedAdmittance",
+        "ThermalStandard", "ThreeWindingTransformer", "TransformerCircuit",
+        "TwoTerminalLCCLine", "TwoWindingTransformer",
     ]
     @test length(PFP.get_components(sys, "ACBus")) == 22
     @test length(PFP.get_components(sys, "Area")) == 1
     @test length(PFP.get_components(sys, "LoadZone")) == 1
     # Coefficient-level load/generator/cost assertions live in test_openapi_load.jl and
     # test_openapi_generation.jl (task 13b); branch/transformer/dc-line/shunt assertions
-    # live in test_openapi_branch.jl and test_openapi_dc_shunt.jl (task 13c); this just
-    # locks in the component census.
+    # live in test_openapi_branch.jl and test_openapi_dc_shunt.jl (task 13c);
+    # switch/breaker and ImpedanceCorrectionData assertions live in
+    # test_openapi_switch.jl and test_openapi_attributes.jl (task 13d); this just locks
+    # in the component census.
     @test length(PFP.get_components(sys, "StandardLoad")) == 13
     @test length(PFP.get_components(sys, "ThermalStandard")) == 7
     @test length(PFP.get_components(sys, "Line")) == 20
@@ -29,49 +31,59 @@ end
     @test length(PFP.get_components(sys, "FixedAdmittance")) == 4
     @test length(PFP.get_components(sys, "SwitchedAdmittance")) == 2
     @test length(PFP.get_components(sys, "FACTSControlDevice")) == 1
+    @test length(PFP.get_components(sys, "DiscreteControlledACBranch")) == 2
+    @test length(PFP.get_supplemental_attributes(sys, "ImpedanceCorrectionData")) == 8
 end
 
-@testset "build_openapi_system warns about unconsumed pm dict sections" begin
-    sys = @test_logs(
-        (:warn, r"switch"),
-        match_mode = :any,
-        PFP.build_openapi_system(_fourteen_bus_pm_data()),
-    )
-    # The warning names sections, not just "switch"; "breaker"/"impedance_correction"/
-    # "switch" are the only categories the 14-bus fixture carries that remain unread
-    # (a future attributes-stage sub-task) — the warning is the only signal of that, so
-    # it must fire. "branch"/"3w_transformer"/"dcline"/"shunt"/"switched_shunt"/"facts"
-    # are now consumed (task 13c) and must NOT appear; see the dedicated exclusion test
-    # below.
-    @test "Line" in PFP.component_type_names(sys)
-end
-
-@testset "the unconsumed-section warning excludes branch/transformer/dc-line/shunt sections now consumed" begin
+@testset "build_openapi_system errors on a genuinely unknown, non-empty pm dict section" begin
     data = _fourteen_bus_pm_data().data
-    only_consumed = Dict{String, Any}(
+    data["totally_unknown_section"] = Dict{String, Any}("1" => Dict{String, Any}())
+    pm_data = PFP.PowerModelsData(data)
+    err = try
+        PFP.build_openapi_system(pm_data)
+        nothing
+    catch e
+        e
+    end
+    @test err isa IS.DataFormatError
+    @test occursin("totally_unknown_section", err.msg)
+    @test occursin("(1)", err.msg)
+end
+
+@testset "_check_unconsumed_sections passes for every section either consumed or on KNOWN_UNCONSUMED_PM_SECTIONS" begin
+    data = _fourteen_bus_pm_data().data
+    only_known = Dict{String, Any}(
         (key => data[key] for key in PFP._CONSUMED_PM_SECTIONS if haskey(data, key))...,
     )
-    only_consumed["baseMVA"] = data["baseMVA"]
-    only_consumed["source_type"] = data["source_type"]
-    only_consumed["per_unit"] = data["per_unit"]
-    logs, _ = Test.collect_test_logs() do
-        PFP._warn_unconsumed_sections(only_consumed)
+    for (key, _) in PFP.KNOWN_UNCONSUMED_PM_SECTIONS
+        only_known[key] = Dict{String, Any}("1" => Dict{String, Any}())
     end
-    @test isempty(logs)
+    only_known["baseMVA"] = data["baseMVA"]
+    only_known["source_type"] = data["source_type"]
+    only_known["per_unit"] = data["per_unit"]
+    # Does not throw.
+    PFP._check_unconsumed_sections(only_known)
 end
 
-@testset "the unconsumed-section warning excludes scalar pm dict keys and fully-consumed sections" begin
+@testset "_check_unconsumed_sections passes for scalar pm dict keys and empty sections" begin
     data = _fourteen_bus_pm_data().data
     only_consumed = Dict{String, Any}(
         "bus" => data["bus"],
+        "totally_unknown_but_empty" => Dict{String, Any}(),
         "baseMVA" => data["baseMVA"],
         "source_type" => data["source_type"],
         "per_unit" => data["per_unit"],
     )
-    logs, _ = Test.collect_test_logs() do
-        PFP._warn_unconsumed_sections(only_consumed)
+    # Does not throw: an empty section, even an unrecognized one, carries no absent
+    # components to warn about.
+    PFP._check_unconsumed_sections(only_consumed)
+end
+
+@testset "every KNOWN_UNCONSUMED_PM_SECTIONS entry carries a non-empty reason" begin
+    for (key, reason) in PFP.KNOWN_UNCONSUMED_PM_SECTIONS
+        @test reason isa AbstractString
+        @test !isempty(strip(reason))
     end
-    @test isempty(logs)
 end
 
 @testset "LoadZone peak sums bus loads and converts system pu to MW/MVAr" begin
@@ -151,6 +163,37 @@ end
     @test all(b -> PFP.get_value(b, :bustype) != "SLACK", other)
 end
 
+@testset "Area.ext carries PSS/E AREA DATA metadata matched by area_number" begin
+    pm_data =
+        PFP.PowerModelsData(joinpath(@__DIR__, "fixtures", "v35_area_slack_variants.raw"))
+    data = pm_data.data
+    # Every bus in this fixture is area=1; area_interchange's area_number=1 record names
+    # bus 2 as the area slack, with a zero net/tolerance interchange of 0.0/10.0.
+    @test all(d -> d["area"] == 1, values(data["bus"]))
+    area1_d = only(v for v in values(data["area_interchange"]) if v["area_number"] == 1)
+    @test area1_d["bus_number"] == 2
+    @test area1_d["area_name"] == "AREA1       "
+
+    sys = PFP.build_openapi_system(pm_data)
+    area = only(PFP.get_components(sys, "Area"))
+    ext = PFP.get_ext(sys, PFP.get_value(area, :id))
+    @test ext["ARNAME"] == "AREA1"  # strip()'d, unlike the raw fixed-width field
+    @test ext["I"] == "1"
+    @test ext["ISW"] == "2"
+    @test ext["PDES"] == area1_d["net_interchange"]
+    @test ext["PTOL"] == area1_d["tol_interchange"]
+end
+
+@testset "_area_interchange_ext returns nothing without a source_type/area_interchange/matching area_number" begin
+    pm_data =
+        PFP.PowerModelsData(joinpath(@__DIR__, "fixtures", "v35_area_slack_variants.raw"))
+    data = pm_data.data
+    @test isnothing(PFP._area_interchange_ext(data, "999"))  # no area_number == "999"
+    @test isnothing(PFP._area_interchange_ext(Dict{String, Any}(), "1"))  # no source_type
+    matpower_data = merge(data, Dict{String, Any}("source_type" => "matpower"))
+    @test isnothing(PFP._area_interchange_ext(matpower_data, "1"))  # oracle-matched: pti only
+end
+
 @testset "_bustype_name rejects a code outside PowerModels' 1-4 range" begin
     @test PFP._bustype_name(1) == "PQ"
     @test PFP._bustype_name(4) == "ISOLATED"
@@ -201,9 +244,6 @@ end
     @test length(PFP.PC.get_components(doc, "ACBus")) == 22
     @test length(PFP.PC.get_components(doc, "Area")) == 1
     @test length(PFP.PC.get_components(doc, "LoadZone")) == 1
-    # Loads/generation (13b) and branches/transformers/dc-lines/shunts (13c) are real;
-    # only the attributes stage (GeographicInfo/ImpedanceCorrectionData) leaves an
-    # honestly empty bucket rather than erroring.
     @test length(PFP.PC.get_components(doc, "StandardLoad")) == 13
     @test length(PFP.PC.get_components(doc, "ThermalStandard")) == 7
     @test length(PFP.PC.get_components(doc, "Line")) == 20
@@ -213,13 +253,12 @@ end
     @test length(PFP.PC.get_components(doc, "FixedAdmittance")) == 4
     @test length(PFP.PC.get_components(doc, "SwitchedAdmittance")) == 2
     @test length(PFP.PC.get_components(doc, "FACTSControlDevice")) == 1
+    @test length(PFP.PC.get_components(doc, "DiscreteControlledACBranch")) == 2
+    @test length(PFP.PC.get_supplemental_attributes(doc, "ImpedanceCorrectionData")) == 8
+    # GeographicInfo stays empty: "substation" is allow-listed
+    # (`KNOWN_UNCONSUMED_PM_SECTIONS`, build.jl), not implemented, in this task — see the
+    # task-13d report.
     @test isempty(PFP.PC.get_components(doc, "GeographicInfo"))
-end
-
-@testset "the attributes stage is a named, clearly-failing stub" begin
-    sys = PFP.OpenAPISystem(100.0)
-    data = _fourteen_bus_pm_data().data
-    @test_throws ErrorException PFP.read_attributes!(sys, data)
 end
 
 @testset "build_openapi_system rejects a pm dict with no buses" begin
