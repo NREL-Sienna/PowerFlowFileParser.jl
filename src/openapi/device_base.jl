@@ -29,7 +29,9 @@
 #     `PowerCoreOpenAPIModels`'s generic error stub — that governs its own convention
 #     independent of the document's, and PowerSystems' own converters confirm it: identical
 #     between `DeviceBaseUnit` and `NaturalUnit` in every case checked (`export_handwritten.jl`);
-#   - that unit's quantity is power-family (`ActivePower`/`ReactivePower`/`ApparentPower`).
+#   - that unit's quantity is power-family (`ActivePower`/`ReactivePower`/`ApparentPower`/
+#     `ActivePowerChangeRate` — a generator/storage `ramp_limits` in MW/min is scaled by
+#     device base exactly like its MW siblings in every PowerSystems converter checked).
 #
 # Two cases this mechanical rule cannot see, found by diffing PowerSystems'
 # `to_openapi(..., ::DeviceBaseUnit)` against `::NaturalUnit)` field-by-field in
@@ -50,7 +52,8 @@
 # Anything else that reaches `_devicebase_own_base`'s error is a real gap — a component
 # field this pass has not been taught to classify — not a value to skip.
 
-const _DEVICEBASE_POWER_QUANTITIES = ("ActivePower", "ReactivePower", "ApparentPower")
+const _DEVICEBASE_POWER_QUANTITIES =
+    ("ActivePower", "ReactivePower", "ApparentPower", "ActivePowerChangeRate")
 
 const _DEVICEBASE_FIXED_NATURAL = Set{Tuple{String, Symbol}}([
     ("Area", :peak_active_power),

@@ -98,6 +98,14 @@ end
     @test PFP.get_value(gen, :reactive_power_limits).min ≈ d["qmin"] * base_conversion
     @test PFP.get_value(gen, :reactive_power_limits).max ≈ d["qmax"] * base_conversion
     @test PFP.get_value(gen, :base_power) == 50.0
+    # ramp_limits (quantity ActivePowerChangeRate, MW/min) is the field the PSY
+    # equivalence oracle (see the task report) caught missing from the first cut of this
+    # pass's power-family quantity set: with no ramp_agc/ramp_10/ramp_30 in `d`,
+    # calculate_ramp_limit falls back to (up = down = abs(pmax)) *without* base_conversion
+    # (`calculate_ramp_limit`'s own documented inconsistency) -- natural_MW = pmax * mbase,
+    # so DEVICE_BASE's pu = natural_MW / mbase collapses back to plain `pmax`.
+    @test PFP.get_value(gen, :ramp_limits).up ≈ d["pmax"]
+    @test PFP.get_value(gen, :ramp_limits).down ≈ d["pmax"]
 end
 
 @testset "every 14-bus generator's real POLYNOMIAL cost (model=2) matches the hand-derived coefficients" begin
