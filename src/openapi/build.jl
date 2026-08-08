@@ -3,35 +3,13 @@
 # (`.claude/plans/2026-08-05-pffp-openapi-emit-layer.md`, Phase 3) — topology, then
 # load, generation/cost, branch, transformer_3w, dc_branch, shunt, attributes.
 #
-# This sub-task adds the load and generation/cost stages (`read_loads!`, `read_generation!`
-# — see load.jl, generation.jl, cost.jl); topology landed in the prior sub-task. Every
-# later stage still gets a same-named stub below that errors unconditionally, so a caller
-# who reaches for one directly gets a named "not implemented" error rather than a silent
-# no-op. `build_openapi_system` calls only the implemented stages — calling a stub from
-# the normal pipeline would make it impossible to build a document from any real case,
-# since every real case has branches. The returned document is honest about the gap: real
-# ACBus/Area/LoadZone/Arc/load/generator/storage components, and empty buckets for
-# everything else.
-
-function read_branches!(::OpenAPISystem, ::Dict; kwargs...)
-    error("reader not implemented: Line/TwoWindingTransformer branches (branch stage)")
-end
-
-function read_3w_transformers!(::OpenAPISystem, ::Dict; kwargs...)
-    error("reader not implemented: ThreeWindingTransformer (transformer_3w stage)")
-end
-
-function read_dc_branches!(::OpenAPISystem, ::Dict; kwargs...)
-    error(
-        "reader not implemented: TwoTerminalGenericHVDCLine/TwoTerminalLCCLine/TwoTerminalVSCLine (dc_branch stage)",
-    )
-end
-
-function read_shunts!(::OpenAPISystem, ::Dict; kwargs...)
-    error(
-        "reader not implemented: FixedAdmittance/SwitchedAdmittance/FACTSControlDevice (shunt stage)",
-    )
-end
+# This sub-task adds the branch, transformer_3w, dc_branch, and shunt stages
+# (`read_branches!`/`read_3w_transformers!` in branch.jl, `read_dc_branches!` in
+# dc_branch.jl, `read_shunts!` in shunt.jl); topology and load/generation/cost landed in
+# the prior two sub-tasks. Only the "attributes" stage (GeographicInfo,
+# ImpedanceCorrectionData — both supplemental-attribute shapes, out of this sub-task's
+# scope per the brief) still gets a stub below, so a caller who reaches for it directly
+# gets a named "not implemented" error rather than a silent no-op.
 
 function read_attributes!(::OpenAPISystem, ::Dict; kwargs...)
     error(
@@ -55,8 +33,17 @@ entry with no matching load is now an error rather than a component: both sectio
 fully read by `read_loads!`, which is what this tuple tracks — not whether every row
 becomes a component (topology.jl's `read_loadzones!` reads `"load"` too, for the same
 reason).
+
+`"switch"`/`"breaker"`/`"generic_connector"` (PSCB's `read_switch_breaker!`, a distinct
+pm section from the zero-impedance-branch-to-switch conversion `read_branches!` performs)
+and `"impedance_correction"` (supplemental-attribute shape) are NOT in this tuple —
+neither is this sub-task's scope; they remain for a future "attributes"-stage sub-task.
 """
-const _CONSUMED_PM_SECTIONS = ("bus", "load", "distributed_generation", "gen", "storage")
+const _CONSUMED_PM_SECTIONS = (
+    "bus", "load", "distributed_generation", "gen", "storage",
+    "branch", "3w_transformer", "dcline", "vscline", "interarea_transfer",
+    "shunt", "switched_shunt", "facts",
+)
 
 """
 Warn once, naming every non-empty pm dict section [`build_openapi_system`](@ref) did not
@@ -85,19 +72,22 @@ end
 """
 Assemble an `OpenAPISystem` from `pm_data`.
 
-Runs [`read_loadzones!`](@ref), [`read_bus!`](@ref), [`read_loads!`](@ref) then
-[`read_generation!`](@ref) — buses before loads/generators, since both resolve their bus
-by id. Every later stage in the Phase 3 plan still has a same-named stub above. Before
-returning, warns about every non-empty pm dict section no reader touched (see
-[`_warn_unconsumed_sections`](@ref)), so a caller never mistakes a partial document for a
-complete one.
+Runs [`read_loadzones!`](@ref), [`read_bus!`](@ref), [`read_loads!`](@ref),
+[`read_generation!`](@ref), [`read_branches!`](@ref), [`read_3w_transformers!`](@ref),
+[`read_dc_branches!`](@ref), then [`read_shunts!`](@ref) — buses before every reader that
+resolves a bus by id, and buses/loadzones before branches so `add_arc!` has both
+endpoints registered. Only the "attributes" stage in this file still has a same-named
+stub. Before returning, warns about every non-empty pm dict section no reader touched
+(see [`_warn_unconsumed_sections`](@ref)), so a caller never mistakes a partial document
+for a complete one.
 
 `unit_system` selects the convention the values are stored in, same as
 [`OpenAPISystem`](@ref). Keyword arguments are threaded through to every reader
-unconsumed, so the 11 name-formatter kwargs the PSS/E metadata reimport path needs
-(`bus_name_formatter`, `area_name_formatter`, `loadzone_name_formatter`, and the eight
-more later stages will read) are already accepted here, even though only the first
-three do anything today.
+unconsumed, so the name-formatter kwargs the PSS/E metadata reimport path needs
+(`bus_name_formatter`, `area_name_formatter`, `loadzone_name_formatter`,
+`branch_name_formatter`, `xfrm_3w_name_formatter`, `dcline_name_formatter`,
+`vsc_line_name_formatter`, `shunt_name_formatter`, `switched_shunt_name_formatter`) are
+already accepted here.
 """
 function build_openapi_system(
     pm_data::PowerModelsData;
@@ -114,6 +104,10 @@ function build_openapi_system(
     read_bus!(sys, data; kwargs...)
     read_loads!(sys, data; kwargs...)
     read_generation!(sys, data; kwargs...)
+    read_branches!(sys, data; kwargs...)
+    read_3w_transformers!(sys, data; kwargs...)
+    read_dc_branches!(sys, data; kwargs...)
+    read_shunts!(sys, data; kwargs...)
 
     _warn_unconsumed_sections(data)
     return sys

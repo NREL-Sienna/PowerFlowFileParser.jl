@@ -47,6 +47,9 @@ include("openapi/topology.jl")
 include("openapi/cost.jl")
 include("openapi/load.jl")
 include("openapi/generation.jl")
+include("openapi/branch.jl")
+include("openapi/dc_branch.jl")
+include("openapi/shunt.jl")
 include("openapi/build.jl")
 
 #################################################################################

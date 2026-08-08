@@ -374,7 +374,7 @@ end
 
 @testset "build_openapi_system's unconsumed-section warning no longer names load/gen/storage" begin
     sys = @test_logs(
-        (:warn, r"branch"),
+        (:warn, r"switch"),
         match_mode = :any,
         PFP.build_openapi_system(_fourteen_bus_pm_data_gen()),
     )
