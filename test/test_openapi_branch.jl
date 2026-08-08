@@ -24,6 +24,25 @@ function _transformer_circuit_between(sys, from_number::Int, to_number::Int)
     return _component_between(sys, "TransformerCircuit", from_number, to_number)
 end
 
+"""A single registered `ACBus` at pm bus `number`, for tests that exercise a `make_*!`/
+`_make_transformer_circuit!` maker directly rather than through `build_openapi_system`."""
+function _register_bus!(sys::PFP.OpenAPISystem, number::Int, name::AbstractString)
+    reg = PFP.get_registry(sys)
+    bus = PFP.PO.ACBus()
+    id = PFP.register_bus!(reg, number, name)
+    PFP.set_value!(bus, :id, id)
+    PFP.set_value!(bus, :number, number)
+    PFP.set_value!(bus, :name, name)
+    PFP.set_value!(bus, :available, true)
+    PFP.set_value!(bus, :bustype, "PQ")
+    PFP.set_value!(bus, :base_voltage, 100.0, "kV")
+    PFP.set_value!(bus, :angle, 0.0, "rad")
+    PFP.set_value!(bus, :magnitude, 1.0, "pu")
+    PFP.set_value!(bus, :voltage_limits, (min = 0.9, max = 1.1), "pu")
+    PFP.add_component!(sys, bus)
+    return id
+end
+
 """The `TwoWindingTransformer` whose `:circuit` matches `circuit`'s id."""
 function _two_winding_transformer_for(sys, circuit)
     circuit_id = PFP.get_value(circuit, :id)
@@ -250,4 +269,50 @@ end
     @test PFP.get_value(switch, :discrete_branch_type) == "SWITCH"
     @test PFP.get_value(switch, :branch_status) ==
           (PFP.get_value(switch, :available) ? "CLOSED" : "OPEN")
+end
+
+@testset "TransformerCircuit.controlled_quantity_limits passes through UNSCALED under DEVICE_BASE for a power-flow-family control_objective" begin
+    # Regression for a NEW Critical the review round that fixed EnergyReservoirStorage
+    # caught: `controlled_quantity_limits`'s schema quantity DOES switch with
+    # `control_objective` (pu for VOLTAGE-family objectives, MW/MVAr for ACTIVE_POWER_FLOW/
+    # REACTIVE_POWER_FLOW/CONTROL_OF_DC_LINE-family ones), which made a first cut of the
+    # DEVICE_BASE registry classify it `:dynamic` (converting the power-flow-family
+    # branches by the circuit's own base_power). That was wrong: PowerSystems' own
+    # `to_openapi` calls the SAME unscaled `_minmax_po(get_controlled_quantity_limits(...))`
+    # in BOTH `DeviceBaseUnit` and `NaturalUnit` (export_handwritten.jl:166-167, :195-196) —
+    # this field never scales with the document convention, regardless of
+    # `control_objective`. Invisible on the 14-bus fixture because every circuit there is
+    # `control_objective = "FIXED"` (already `:skip` either way) — this test uses
+    # `COD1 = 3` ("ACTIVE_POWER_FLOW", MW-declared) specifically to exercise the branch
+    # the bug was in.
+    #
+    # base_power = 50, sys_mbase = 100 (base_conversion-sensitive, same discipline as the
+    # storage/generator DEVICE_BASE tests): active_power_flow/reactive_power_flow DO
+    # convert (10.0/50.0 = 0.2, 5.0/50.0 = 0.1) so this test also proves the fix did not
+    # collaterally stop scaling this circuit's other power fields. controlled_quantity_limits
+    # must come out exactly (50.0, 150.0) -- if it were wrongly divided by base_power = 50
+    # it would read (1.0, 3.0) instead, a clearly different and wrong number.
+    sys = PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE")
+    reg = PFP.get_registry(sys)
+    from_id = _register_bus!(sys, 1, "b1")
+    to_id = _register_bus!(sys, 2, "b2")
+    d = Dict{String, Any}(
+        "tap" => 1.0, "shift" => 0.0,
+        "COD1" => 3, "RMI1" => -10.0, "RMA1" => 10.0, "VMI1" => 50.0, "VMA1" => 150.0,
+    )
+    PFP._make_transformer_circuit!(
+        sys, reg, d, from_id, to_id, "test_xfmr";
+        tap_key = "tap", angle_key = "shift", control_suffix = 1, available = true,
+        r = 0.01, x = 0.05, rating = 100.0, rating_b = nothing, rating_c = nothing,
+        base_power = 50.0, base_voltage_primary = 100.0, base_voltage_secondary = 100.0,
+        active_power_flow = 10.0, reactive_power_flow = 5.0,
+    )
+    PFP.apply_device_base_conversion!(sys)
+    circuit = only(PFP.get_components(sys, "TransformerCircuit"))
+    @test PFP.get_value(circuit, :control_objective) == "ACTIVE_POWER_FLOW"
+    @test PFP.get_value(circuit, :controlled_quantity_limits).min == 50.0
+    @test PFP.get_value(circuit, :controlled_quantity_limits).max == 150.0
+    @test PFP.get_value(circuit, :active_power_flow) ≈ 0.2
+    @test PFP.get_value(circuit, :reactive_power_flow) ≈ 0.1
+    @test PFP.get_value(circuit, :base_power) == 50.0
 end

@@ -107,16 +107,25 @@ const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
     ("TwoWindingTransformer", :magnetizing_shunt) => :skip,
     ("ThreeWindingTransformer", :magnetizing_shunt) => :skip,
     ("FACTSControlDevice", :voltage_setpoint) => :skip,
-    # control_objective governs both of TransformerCircuit's own control fields, but the
-    # two do not classify the same way. `control_limits` resolves to Dimensionless ("1")
-    # or Angle ("rad") on EVERY control_objective branch (checked against every enum value
-    # in the schema, not just this fixture's "FIXED") -- never power-family, so a single
-    # static verdict is correct and safe regardless of which branch a future producer hits.
+    # control_objective governs both of TransformerCircuit's own control fields.
+    # `control_limits` resolves to Dimensionless ("1") or Angle ("rad") on EVERY
+    # control_objective branch (checked against every enum value in the schema, not just
+    # this fixture's "FIXED") -- never power-family, so a static verdict is correct
+    # regardless of which branch a future producer hits.
     ("TransformerCircuit", :control_limits) => :skip,
-    # `controlled_quantity_limits` genuinely switches quantity with control_objective
+    # `controlled_quantity_limits` DOES switch schema quantity with control_objective
     # (Voltage/pu for VOLTAGE-family objectives, MW/MVAr for ACTIVE_POWER_FLOW/
-    # REACTIVE_POWER_FLOW/CONTROL_OF_DC_LINE-family objectives) -- resolved per component.
-    ("TransformerCircuit", :controlled_quantity_limits) => :dynamic,
+    # REACTIVE_POWER_FLOW/CONTROL_OF_DC_LINE-family objectives) -- but PowerSystems' own
+    # to_openapi calls the SAME unscaled `_minmax_po(get_controlled_quantity_limits(circuit))`
+    # in BOTH the DeviceBaseUnit and NaturalUnit methods (export_handwritten.jl:166-167 and
+    # :195-196) -- i.e. PSY never scales this field by base_power regardless of document
+    # convention OR control_objective. A first cut of this registry made it `:dynamic`
+    # (converting the power-flow-family branches) purely from the schema's declared
+    # quantity, without checking PSY's actual DU/NU pair -- wrong, and invisible on the
+    # 14-bus fixture because every circuit there is control_objective = "FIXED" (a
+    # VOLTAGE-family, already-`:skip` branch either way). Static `:skip`, matching
+    # `control_limits`.
+    ("TransformerCircuit", :controlled_quantity_limits) => :skip,
     # admittance_units always "DEVICE_MVAR" (shunt.jl) -- PowerSystems' own to_openapi
     # confirms this is fixed-natural, multiplied by the SYSTEM base in both document
     # conventions (export_handwritten.jl's FixedAdmittance section), not document-unit-
@@ -148,6 +157,16 @@ const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
     # power_mode selects between two DIFFERENT PHYSICAL QUANTITIES (ActivePower vs
     # CurrentFlow), not two representations of the same one -- resolved per component from
     # the instance-level quantity, not statically here.
+    #
+    # PARKED, not settled: PowerSystems has no `from_openapi`/`to_openapi` converter for
+    # `TwoTerminalLCCLine` at all today (`openapi_type: null`), so there is no PSY DU/NU
+    # pair to check this against, unlike every other entry in this registry -- this
+    # disposition is this package's own best-effort reasoning by analogy with every other
+    # own-base_power `ActivePower` field on this same type (`active_power_flow`,
+    # `active_power_limits_from/to`), not a verified fact. When PSY gains a converter for
+    # this type, it becomes the authority for this field and this entry must be
+    # re-checked against it, the same way the review that added this comment caught
+    # `controlled_quantity_limits` being wrong.
     ("TwoTerminalLCCLine", :transfer_setpoint) => :dynamic,
 )
 
@@ -190,22 +209,18 @@ or [`_devicebase_dynamic`](@ref) errors naming the unexpected quantity rather th
 
   - `TwoTerminalLCCLine.transfer_setpoint` (`power_mode`): `ActivePower` (MW, converts like
     every sibling power field) or `CurrentFlow` (A — no power-base conversion is defined for
-    a current quantity anywhere in this schema).
-  - `TransformerCircuit.controlled_quantity_limits` (`control_objective`): `Voltage` (pu
-    already, one of `TransformerCircuit`'s VOLTAGE-family objectives) or `ActivePower`/
-    `ReactivePower` (MW/MVAr, one of the ACTIVE_POWER_FLOW/REACTIVE_POWER_FLOW/
-    CONTROL_OF_DC_LINE-family objectives — converts by the circuit's own `base_power`,
-    exactly like its sibling `active_power_flow`/`reactive_power_flow`).
+    a current quantity anywhere in this schema). PARKED — see the registry entry above.
+
+`TransformerCircuit.controlled_quantity_limits` was the one other candidate for this table
+(its schema quantity does switch with `control_objective`) but is `:skip` in
+`_DEVICEBASE_INSTANCE_DISPATCHED` instead, not `:dynamic` here — PowerSystems' own
+`to_openapi` never scales it regardless of `control_objective` (see that registry entry's
+comment), so there is no quantity-dependent verdict to look up.
 """
 const _DEVICEBASE_DYNAMIC_QUANTITIES = Dict{Tuple{String, Symbol}, Dict{String, Symbol}}(
     ("TwoTerminalLCCLine", :transfer_setpoint) => Dict(
         "ActivePower" => :convert_own,
         "CurrentFlow" => :skip,
-    ),
-    ("TransformerCircuit", :controlled_quantity_limits) => Dict(
-        "Voltage" => :skip,
-        "ActivePower" => :convert_own,
-        "ReactivePower" => :convert_own,
     ),
 )
 
