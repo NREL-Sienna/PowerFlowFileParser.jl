@@ -158,15 +158,12 @@ const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
     # CurrentFlow), not two representations of the same one -- resolved per component from
     # the instance-level quantity, not statically here.
     #
-    # PARKED, not settled: PowerSystems has no `from_openapi`/`to_openapi` converter for
-    # `TwoTerminalLCCLine` at all today (`openapi_type: null`), so there is no PSY DU/NU
-    # pair to check this against, unlike every other entry in this registry -- this
-    # disposition is this package's own best-effort reasoning by analogy with every other
-    # own-base_power `ActivePower` field on this same type (`active_power_flow`,
-    # `active_power_limits_from/to`), not a verified fact. When PSY gains a converter for
-    # this type, it becomes the authority for this field and this entry must be
-    # re-checked against it, the same way the review that added this comment caught
-    # `controlled_quantity_limits` being wrong.
+    # SETTLED (design decision, 2026-08-08): Sienna models LCC only as this two-terminal
+    # HVDC line type -- there is no standalone LCC converter model -- so the field follows
+    # the two-terminal HVDC family convention, like its own sibling power fields
+    # (`active_power_flow`, `active_power_limits_from/to`) and the generic type's PSY
+    # converter. PSY has no `TwoTerminalLCCLine` converter yet (`openapi_type: null`);
+    # when one is written it must match this convention.
     ("TwoTerminalLCCLine", :transfer_setpoint) => :dynamic,
 )
 
@@ -209,7 +206,7 @@ or [`_devicebase_dynamic`](@ref) errors naming the unexpected quantity rather th
 
   - `TwoTerminalLCCLine.transfer_setpoint` (`power_mode`): `ActivePower` (MW, converts like
     every sibling power field) or `CurrentFlow` (A — no power-base conversion is defined for
-    a current quantity anywhere in this schema). PARKED — see the registry entry above.
+    a current quantity anywhere in this schema). Settled per the registry entry above.
 
 `TransformerCircuit.controlled_quantity_limits` was the one other candidate for this table
 (its schema quantity does switch with `control_objective`) but is `:skip` in
