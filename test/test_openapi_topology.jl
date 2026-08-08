@@ -4,24 +4,33 @@ function _fourteen_bus_pm_data()
     return PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE)
 end
 
-@testset "build_openapi_system reads topology only" begin
+@testset "build_openapi_system reads topology, loads, and generation" begin
     sys = PFP.build_openapi_system(_fourteen_bus_pm_data())
-    @test PFP.component_type_names(sys) == ["ACBus", "Area", "LoadZone"]
+    @test PFP.component_type_names(sys) ==
+          ["ACBus", "Area", "LoadZone", "StandardLoad", "ThermalStandard"]
     @test length(PFP.get_components(sys, "ACBus")) == 22
     @test length(PFP.get_components(sys, "Area")) == 1
     @test length(PFP.get_components(sys, "LoadZone")) == 1
+    # Coefficient-level load/generator/cost assertions live in test_openapi_load.jl and
+    # test_openapi_generation.jl (task 13b); this just locks in the component census.
+    @test length(PFP.get_components(sys, "StandardLoad")) == 13
+    @test length(PFP.get_components(sys, "ThermalStandard")) == 7
 end
 
 @testset "build_openapi_system warns about unconsumed pm dict sections" begin
     sys = @test_logs(
-        (:warn, r"gen"),
+        (:warn, r"branch"),
         match_mode = :any,
         PFP.build_openapi_system(_fourteen_bus_pm_data()),
     )
-    # The warning names sections, not just "gen"; every category the 14-bus fixture
-    # carries (loads, generators, branches, shunts, FACTS, a DC line) is still absent
-    # from the document — the warning is the only signal of that, so it must fire.
-    @test PFP.component_type_names(sys) == ["ACBus", "Area", "LoadZone"]
+    # The warning names sections, not just "branch"; every category the 14-bus fixture
+    # carries that this task's readers don't touch (branches, shunts, FACTS, a DC line,
+    # transformers) is still absent from the document — the warning is the only signal
+    # of that, so it must fire. "load"/"gen"/"storage"/"distributed_generation" are now
+    # consumed (task 13b) and must NOT appear in the warning; see
+    # test_openapi_generation.jl's dedicated test for that exclusion.
+    @test PFP.component_type_names(sys) ==
+          ["ACBus", "Area", "LoadZone", "StandardLoad", "ThermalStandard"]
 end
 
 @testset "the unconsumed-section warning excludes scalar pm dict keys and fully-consumed sections" begin
@@ -159,16 +168,16 @@ end
     @test length(PFP.PC.get_components(doc, "ACBus")) == 22
     @test length(PFP.PC.get_components(doc, "Area")) == 1
     @test length(PFP.PC.get_components(doc, "LoadZone")) == 1
-    # Not-yet-implemented stages leave an honestly empty bucket rather than erroring.
+    # Loads and generation are real as of task 13b; branches are not yet implemented and
+    # leave an honestly empty bucket rather than erroring.
+    @test length(PFP.PC.get_components(doc, "StandardLoad")) == 13
+    @test length(PFP.PC.get_components(doc, "ThermalStandard")) == 7
     @test isempty(PFP.PC.get_components(doc, "Line"))
-    @test isempty(PFP.PC.get_components(doc, "ThermalStandard"))
 end
 
 @testset "later stages are named, clearly-failing stubs" begin
     sys = PFP.OpenAPISystem(100.0)
     data = _fourteen_bus_pm_data().data
-    @test_throws ErrorException PFP.read_loads!(sys, data)
-    @test_throws ErrorException PFP.read_generation!(sys, data)
     @test_throws ErrorException PFP.read_branches!(sys, data)
     @test_throws ErrorException PFP.read_3w_transformers!(sys, data)
     @test_throws ErrorException PFP.read_dc_branches!(sys, data)

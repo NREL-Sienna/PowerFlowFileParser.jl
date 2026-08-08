@@ -3,25 +3,15 @@
 # (`.claude/plans/2026-08-05-pffp-openapi-emit-layer.md`, Phase 3) — topology, then
 # load, generation/cost, branch, transformer_3w, dc_branch, shunt, attributes.
 #
-# This sub-task implements only the topology stage. Every later stage gets a same-named
-# stub below that errors unconditionally, so a caller who reaches for one directly gets a
-# named "not implemented" error rather than a silent no-op. `build_openapi_system` itself
-# calls only the implemented stages — calling a stub from the normal pipeline would make
-# it impossible to build a document from any real case, since every real case has loads
-# and generators. The returned document is honest about the gap: real ACBus/Area/
-# LoadZone/Arc components, and empty buckets for everything else.
-
-function read_loads!(::OpenAPISystem, ::Dict; kwargs...)
-    error(
-        "reader not implemented: PowerLoad/StandardLoad/InterruptibleStandardLoad (load stage)",
-    )
-end
-
-function read_generation!(::OpenAPISystem, ::Dict; kwargs...)
-    error(
-        "reader not implemented: generator and cost curve components (generation/cost stage)",
-    )
-end
+# This sub-task adds the load and generation/cost stages (`read_loads!`, `read_generation!`
+# — see load.jl, generation.jl, cost.jl); topology landed in the prior sub-task. Every
+# later stage still gets a same-named stub below that errors unconditionally, so a caller
+# who reaches for one directly gets a named "not implemented" error rather than a silent
+# no-op. `build_openapi_system` calls only the implemented stages — calling a stub from
+# the normal pipeline would make it impossible to build a document from any real case,
+# since every real case has branches. The returned document is honest about the gap: real
+# ACBus/Area/LoadZone/Arc/load/generator/storage components, and empty buckets for
+# everything else.
 
 function read_branches!(::OpenAPISystem, ::Dict; kwargs...)
     error("reader not implemented: Line/TwoWindingTransformer branches (branch stage)")
@@ -59,8 +49,14 @@ consumed section's name joins this tuple and leaves [`_warn_unconsumed_sections`
 warning. Once every dict-valued pm section is accounted for here, that warning should
 become an `error()`: at that point a name this tuple doesn't list is a genuinely
 unrecognized pm-dict shape, not a known, tracked gap.
+
+`"load"` and `"distributed_generation"` are listed even though a distributed-generation
+entry with no matching load is now an error rather than a component: both sections are
+fully read by `read_loads!`, which is what this tuple tracks — not whether every row
+becomes a component (topology.jl's `read_loadzones!` reads `"load"` too, for the same
+reason).
 """
-const _CONSUMED_PM_SECTIONS = ("bus",)
+const _CONSUMED_PM_SECTIONS = ("bus", "load", "distributed_generation", "gen", "storage")
 
 """
 Warn once, naming every non-empty pm dict section [`build_openapi_system`](@ref) did not
@@ -89,10 +85,10 @@ end
 """
 Assemble an `OpenAPISystem` from `pm_data`.
 
-Runs [`read_loadzones!`](@ref) then [`read_bus!`](@ref) — in that order, because a bus
-resolves its load zone by id — and stops there. Every later stage in the Phase 3 plan
-has a same-named stub above; none is called from here yet. Before returning, warns about
-every non-empty pm dict section neither reader touched (see
+Runs [`read_loadzones!`](@ref), [`read_bus!`](@ref), [`read_loads!`](@ref) then
+[`read_generation!`](@ref) — buses before loads/generators, since both resolve their bus
+by id. Every later stage in the Phase 3 plan still has a same-named stub above. Before
+returning, warns about every non-empty pm dict section no reader touched (see
 [`_warn_unconsumed_sections`](@ref)), so a caller never mistakes a partial document for a
 complete one.
 
@@ -116,6 +112,8 @@ function build_openapi_system(
 
     read_loadzones!(sys, data; kwargs...)
     read_bus!(sys, data; kwargs...)
+    read_loads!(sys, data; kwargs...)
+    read_generation!(sys, data; kwargs...)
 
     _warn_unconsumed_sections(data)
     return sys
