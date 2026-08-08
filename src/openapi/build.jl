@@ -76,8 +76,13 @@ pm dict section no reader touched and `KNOWN_UNCONSUMED_PM_SECTIONS` does not ex
 a caller never mistakes a partial document for a complete one.
 
 `unit_system` selects the convention the values are stored in, same as
-[`OpenAPISystem`](@ref). Keyword arguments — the `*_name_formatter`s the PSS/E metadata
-reimport path needs — are threaded through to every reader unconsumed.
+[`OpenAPISystem`](@ref): `"NATURAL_UNITS"` (the default) leaves every reader's MW/MVAr/MVA
+values as computed; `"DEVICE_BASE"` additionally runs [`apply_device_base_conversion!`](@ref)
+over the built document, converting every power-family field into per-unit on the
+component's own device base (or the system base, for the few types with none of their own) —
+the document PowerSystems' `DeviceBaseUnit` importer expects. Keyword arguments — the
+`*_name_formatter`s the PSS/E metadata reimport path needs — are threaded through to every
+reader unconsumed.
 """
 function build_openapi_system(
     pm_data::PowerModelsData;
@@ -100,6 +105,7 @@ function build_openapi_system(
     read_dc_branches!(sys, data; kwargs...)
     read_shunts!(sys, data; kwargs...)
     read_attributes!(sys, data; kwargs...)
+    apply_device_base_conversion!(sys)
 
     _check_unconsumed_sections(data)
     return sys

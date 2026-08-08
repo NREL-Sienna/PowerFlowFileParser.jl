@@ -69,6 +69,37 @@ end
     end
 end
 
+@testset "ThermalStandard fields are per-unit-on-own-mbase under DEVICE_BASE, mbase != sys_mbase" begin
+    # sys_mbase=100, mbase=50: every 14-bus generator states mbase == sys_mbase (see this
+    # file's header), so DEVICE_BASE's own-base division is only distinguishable from the
+    # system base on a synthetic generator, same reason the "Bug-compatible" tests below
+    # build one directly rather than through build_openapi_system.
+    #
+    # NATURAL_UNITS would store natural_MW = pg * base_conversion * mbase, where
+    # base_conversion = sys_mbase / mbase (see the mbase == sys_mbase testset above).
+    # DEVICE_BASE divides that by the generator's own mbase: pu = natural_MW / mbase =
+    # pg * base_conversion = pg * (sys_mbase / mbase) -- i.e. the raw system-per-unit value
+    # rescaled onto the device's own base, independent of `mbase`'s absolute value.
+    sys = PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE")
+    reg = PFP.get_registry(sys)
+    bus = _register_test_bus!(sys)
+    d = Dict{String, Any}(
+        "mbase" => 50.0, "gen_status" => true, "pg" => 0.6, "qg" => 0.1,
+        "pmax" => 0.8, "pmin" => 0.0, "qmax" => 0.3, "qmin" => -0.3,
+    )
+    PFP.make_thermal_generator!(sys, reg, bus, d, "g1", 100.0)
+    PFP.apply_device_base_conversion!(sys)
+    gen = only(PFP.get_components(sys, "ThermalStandard"))
+    base_conversion = 100.0 / 50.0
+    @test PFP.get_value(gen, :active_power) ≈ d["pg"] * base_conversion
+    @test PFP.get_value(gen, :reactive_power) ≈ d["qg"] * base_conversion
+    @test PFP.get_value(gen, :active_power_limits).min ≈ d["pmin"] * base_conversion
+    @test PFP.get_value(gen, :active_power_limits).max ≈ d["pmax"] * base_conversion
+    @test PFP.get_value(gen, :reactive_power_limits).min ≈ d["qmin"] * base_conversion
+    @test PFP.get_value(gen, :reactive_power_limits).max ≈ d["qmax"] * base_conversion
+    @test PFP.get_value(gen, :base_power) == 50.0
+end
+
 @testset "every 14-bus generator's real POLYNOMIAL cost (model=2) matches the hand-derived coefficients" begin
     # Every gen has cost=[100.0, 0.0], ncost=2, mbase == sys_mbase == 100: PowerModels'
     # own per-unit correction scaled the synthetic PSS/E default (proportional_term=1.0,

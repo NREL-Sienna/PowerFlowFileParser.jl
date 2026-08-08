@@ -59,6 +59,24 @@ end
     @test PFP.get_value(line, :reactive_power_flow) == 0.0
 end
 
+@testset "Line: rating is per-unit-on-own-base_power under DEVICE_BASE" begin
+    # NATURAL_UNITS stores rating = d["rate_a"] * base_power (own base_power, always the
+    # system base for a Line -- see `_resolve_base_power`). DEVICE_BASE divides that back
+    # by the same base_power, so the document should carry PowerModels' raw per-unit
+    # `rate_a` verbatim; r/x/b are pu-by-convention and untouched either way.
+    pm = fourteen_bus_pm_data()
+    sys = PFP.build_openapi_system(pm; unit_system = "DEVICE_BASE")
+    d = only(
+        v for v in values(pm.data["branch"]) if
+        v["f_bus"] == 102 && v["t_bus"] == 104,
+    )
+    line = _component_between(sys, "Line", 102, 104)
+    @test PFP.get_value(line, :r) == d["br_r"]
+    @test PFP.get_value(line, :x) == d["br_x"]
+    @test PFP.get_value(line, :base_power) == 100.0
+    @test PFP.get_value(line, :rating) ≈ d["rate_a"]
+end
+
 @testset "TwoWindingTransformer + TransformerCircuit: r/x device-base passthrough, rating/flow ×circuit base_power" begin
     pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
@@ -104,6 +122,37 @@ end
         PFP.get_value(transformer, :magnetizing_shunt),
         (real = d["g_fr"], imag = d["b_fr"]),
     )
+end
+
+@testset "TransformerCircuit: rating/flow are per-unit-on-own-base_power under DEVICE_BASE, r/x/magnetizing_shunt untouched" begin
+    # NATURAL_UNITS stores rating = d["rate_a"] * d["base_power"] (the circuit's own base,
+    # not necessarily sys_mbase). DEVICE_BASE divides that back by the same base_power, so
+    # the document should carry PowerModels' raw per-unit `rate_a` verbatim. r/x/
+    # magnetizing_shunt are always DEVICE_BASE pu already (their own `parameter_units`/
+    # `admittance_units` discriminators, independent of the document's unit_system) and
+    # must not move at all between the two documents.
+    pm = fourteen_bus_pm_data()
+    sys_natural = PFP.build_openapi_system(pm)
+    sys_device = PFP.build_openapi_system(pm; unit_system = "DEVICE_BASE")
+    d = only(
+        v for v in values(pm.data["branch"]) if
+        v["f_bus"] == 109 && v["t_bus"] == 104,
+    )
+
+    circuit = _transformer_circuit_between(sys_device, 109, 104)
+    @test PFP.get_value(circuit, :r) == d["br_r"]
+    @test PFP.get_value(circuit, :x) == d["br_x"]
+    @test PFP.get_value(circuit, :base_power) == d["base_power"]
+    @test PFP.get_value(circuit, :rating) ≈ d["rate_a"]
+    @test PFP.get_value(circuit, :active_power_flow) == 0.0
+
+    transformer = _two_winding_transformer_for(sys_device, circuit)
+    natural_circuit = _transformer_circuit_between(sys_natural, 109, 104)
+    natural_transformer = _two_winding_transformer_for(sys_natural, natural_circuit)
+    device_shunt = PFP.get_value(transformer, :magnetizing_shunt)
+    natural_shunt = PFP.get_value(natural_transformer, :magnetizing_shunt)
+    @test device_shunt.real == natural_shunt.real
+    @test device_shunt.imag == natural_shunt.imag
 end
 
 @testset "ThreeWindingTransformer: three circuits, unbounded (zero) ratings become INFINITE_BOUND, no rating scaling" begin
