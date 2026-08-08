@@ -48,8 +48,10 @@ include("openapi/cost.jl")
 include("openapi/load.jl")
 include("openapi/generation.jl")
 include("openapi/branch.jl")
+include("openapi/switch_breaker.jl")
 include("openapi/dc_branch.jl")
 include("openapi/shunt.jl")
+include("openapi/attributes.jl")
 include("openapi/build.jl")
 
 #################################################################################

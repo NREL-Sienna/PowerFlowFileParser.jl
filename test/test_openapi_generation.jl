@@ -372,26 +372,22 @@ end
     @test isempty(PFP.get_components(sys, "ThermalStandard"))
 end
 
-@testset "build_openapi_system's unconsumed-section warning no longer names load/gen/storage" begin
-    sys = @test_logs(
-        (:warn, r"switch"),
-        match_mode = :any,
-        PFP.build_openapi_system(_fourteen_bus_pm_data_gen()),
-    )
-    logs, _ = Test.collect_test_logs() do
-        PFP._warn_unconsumed_sections(
-            Dict{String, Any}(
-                "bus" => Dict{String, Any}(),
-                "load" => Dict{String, Any}("1" => Dict{String, Any}()),
-                "gen" => Dict{String, Any}("1" => Dict{String, Any}()),
-                "storage" => Dict{String, Any}("1" => Dict{String, Any}()),
-                "distributed_generation" => Dict{String, Any}(
-                    "1" => Dict{String, Any}(),
-                ),
+@testset "build_openapi_system's unconsumed-section check does not name load/gen/storage" begin
+    sys = PFP.build_openapi_system(_fourteen_bus_pm_data_gen())
+    @test "ThermalStandard" in PFP.component_type_names(sys)
+    # Does not throw: load/gen/storage/distributed_generation are all fully read by
+    # read_loads!/read_generation!.
+    PFP._check_unconsumed_sections(
+        Dict{String, Any}(
+            "bus" => Dict{String, Any}(),
+            "load" => Dict{String, Any}("1" => Dict{String, Any}()),
+            "gen" => Dict{String, Any}("1" => Dict{String, Any}()),
+            "storage" => Dict{String, Any}("1" => Dict{String, Any}()),
+            "distributed_generation" => Dict{String, Any}(
+                "1" => Dict{String, Any}(),
             ),
-        )
-    end
-    @test isempty(logs)
+        ),
+    )
 end
 
 @testset "a fresh 14-bus document with loads and generators round-trips through PC" begin

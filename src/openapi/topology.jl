@@ -65,13 +65,46 @@ function _unique_bus_names(bus_data)
 end
 
 """
+PSS/E AREA DATA per-area metadata (name, slack bus, desired/tolerance interchange) for
+the `Area` named `area_name`, in PSCB's own `ext` shape. Ported from the inline
+area_interchange lookup inside PSCB's `read_bus!` (:437-458): matched onto the area whose
+(formatted) name equals `string(area_data["area_number"])` — the SAME match rule as the
+oracle, including its `area_name_formatter`-dependent behavior (a non-default formatter
+makes this comparison never match, same silent gap the oracle itself has; not fixed here).
+
+Unlike the oracle, which unconditionally attaches an all-`""` `ext` dict even without a
+match, this returns `nothing` for "no match" — the caller only calls `set_ext!` when
+there is real data to record, matching every other reader in this codebase's own
+`if !isempty(extras)` convention (branch.jl, shunt.jl, generation.jl) rather than the
+oracle's unconditional one.
+"""
+function _area_interchange_ext(data::Dict, area_name::AbstractString)
+    if get(data, "source_type", nothing) != "pti" || !haskey(data, "area_interchange")
+        return nothing
+    end
+    for (_, area_data) in data["area_interchange"]
+        if haskey(area_data, "area_number") &&
+           string(area_data["area_number"]) == area_name
+            return Dict{String, Any}(
+                "ARNAME" => strip(get(area_data, "area_name", "")),
+                "I" => string(get(area_data, "area_number", "")),
+                "ISW" => string(get(area_data, "bus_number", "")),
+                "PDES" => get(area_data, "net_interchange", ""),
+                "PTOL" => get(area_data, "tol_interchange", ""),
+            )
+        end
+    end
+    return nothing
+end
+
+"""
 Return the id of the named `Area`, creating it with a zero peak on first sight.
 
 PSCB's oracle never back-fills an `Area`'s peak from load data — only `LoadZone` does,
 via `read_loadzones!` below — so this ports that asymmetry rather than "fixing" it; the
 zero comes from `PO.Area`'s own default, not an explicit `set_value!` here.
 """
-function _ensure_area!(sys::OpenAPISystem, name::AbstractString)
+function _ensure_area!(sys::OpenAPISystem, data::Dict, name::AbstractString)
     reg = get_registry(sys)
     if has_id(reg, "Area", name)
         return get_id(reg, "Area", name)
@@ -84,6 +117,10 @@ function _ensure_area!(sys::OpenAPISystem, name::AbstractString)
     # the documented convention for the types this applies to (D-C).
     set_value!(area, :base_power, get_base_power(sys), "MVA")
     add_component!(sys, area)
+    extras = _area_interchange_ext(data, name)
+    if !isnothing(extras)
+        set_ext!(sys, id, extras)
+    end
     return id
 end
 
@@ -154,7 +191,7 @@ function read_bus!(sys::OpenAPISystem, data::Dict; kwargs...)
     for (_, d) in bus_data
         name = strip(_get_bus_name(d))
         number = Int(d["bus_i"])
-        area_id = _ensure_area!(sys, _get_area_name(d["area"]))
+        area_id = _ensure_area!(sys, data, _get_area_name(d["area"]))
         zone_id = get_id(reg, "LoadZone", _get_zone_name(d["zone"]))
 
         bus = PO.ACBus()
