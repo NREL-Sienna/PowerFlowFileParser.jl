@@ -4,10 +4,9 @@
 # `PowerModelsData(file)` defaults `pm_data_corrections = true`, which runs PowerModels'
 # `_make_per_unit!`: every power quantity in `data` (including load pd/qd) arrives as
 # system per-unit on `baseMVA`, not natural units. The schemas' ActivePower/
-# ReactivePower quantities have no "pu" row (D2 in
-# `.claude/plans/2026-08-05-pffp-openapi-emit-layer.md`), so every power value this file
-# writes is multiplied back by `baseMVA` before `set_value!` — the conversion the
-# document requires, not a workaround.
+# ReactivePower quantities have no "pu" row, so every power value this file writes is
+# multiplied back by `baseMVA` before `set_value!` — the conversion the document
+# requires, not a workaround.
 #
 # Two quantities need no such rescaling: `vm`/`vmin`/`vmax` are already pu on `base_kv`,
 # which is exactly what `ACBus.magnitude`/`voltage_limits` (`x-unit-base`) want, and `va`
@@ -108,7 +107,7 @@ function _ensure_area!(sys::OpenAPISystem, data::Dict, name::AbstractString)
     id = register!(reg, "Area", name)
     set_value!(area, :id, id)
     set_value!(area, :name, name)
-    # Area has no device base; base_power records the system base (D-C convention).
+    # Area has no device base; base_power records the system base.
     set_value!(area, :base_power, get_base_power(sys), "MVA")
     add_component!(sys, area)
     extras = _area_interchange_ext(data, name)
@@ -120,7 +119,7 @@ end
 
 """
 Sum `data["load"]`'s pd/qd/pi/qi/py/qy per bus zone, converting pm's system per-unit
-values to MW/MVAr (D2). Mirrors `read_loadzones!`'s `load_zone_map`.
+values to MW/MVAr. Mirrors `read_loadzones!`'s `load_zone_map`.
 """
 function _zone_peak_loads(data::Dict, base_power::Float64)
     per_unit_peaks = Dict{Int, Tuple{Float64, Float64}}()
@@ -157,7 +156,7 @@ function read_loadzones!(sys::OpenAPISystem, data::Dict; kwargs...)
         set_value!(load_zone, :name, name)
         set_value!(load_zone, :peak_active_power, active, "MW")
         set_value!(load_zone, :peak_reactive_power, reactive, "MVAr")
-        # LoadZone has no device base; base_power records the system base (D-C convention).
+        # LoadZone has no device base; base_power records the system base.
         set_value!(load_zone, :base_power, get_base_power(sys), "MVA")
         add_component!(sys, load_zone)
     end

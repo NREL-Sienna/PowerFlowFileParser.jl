@@ -45,7 +45,7 @@ end
 A switch, breaker, or generic connector as a `DiscreteControlledACBranch`. Ported from
 PSCB's `make_switch_breaker` (:1349-1363). `base_power` is set explicitly here because
 the oracle's constructor leaves it to PSY's `add_component!`, which back-fills the system
-base for every `BasePowerKind::SystemBasePower` type (D-C convention).
+base for every `BasePowerKind::SystemBasePower` type.
 """
 function make_switch_breaker!(
     sys::OpenAPISystem,
@@ -79,10 +79,7 @@ function make_switch_breaker!(
     )
     set_value!(component, :branch_status, _discrete_branch_status(state))
     add_component!(sys, component)
-    extras = get(d, "ext", Dict{String, Any}())
-    if !isempty(extras)
-        set_ext!(sys, get_value(component, :id), extras)
-    end
+    set_component_ext!(sys, component, get(d, "ext", Dict{String, Any}()))
     return
 end
 

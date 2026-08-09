@@ -8,7 +8,7 @@
 # fields (`rate_a`/`rate_b`/`rate_c`, `pf`/`qf`) by `baseMVA`, same as every other PM power
 # quantity, but leaves impedance/admittance fields (`br_r`/`br_x`/`g_fr`/`g_to`/`b_fr`/
 # `b_to`) untouched — PowerModels' branch representation is impedance-native, never
-# natural ohms. For a `Line`, whose `base_power` is the SYSTEM base (D-C convention),
+# natural ohms. For a `Line`, whose `base_power` is the SYSTEM base,
 # this means every field this reader multiplies by a base uses `sys_mbase`.
 #
 # For a PSS/E-sourced transformer, PFFP's own `psse.jl` additionally REBASES `br_r`/
@@ -279,23 +279,13 @@ function _make_transformer_circuit!(
     set_value!(circuit, :x, x, "pu")
     _set_transformer_control_fields!(circuit, d, control_suffix, record)
     set_value!(circuit, :base_power, base_power, "MVA")
-    if !isnothing(rating)
-        set_value!(circuit, :rating, rating, "MVA")
-    end
-    if !isnothing(rating_b)
-        set_value!(circuit, :rating_b, rating_b, "MVA")
-    end
-    if !isnothing(rating_c)
-        set_value!(circuit, :rating_c, rating_c, "MVA")
-    end
+    set_optional_value!(circuit, :rating, rating, "MVA")
+    set_optional_value!(circuit, :rating_b, rating_b, "MVA")
+    set_optional_value!(circuit, :rating_c, rating_c, "MVA")
     set_value!(circuit, :active_power_flow, active_power_flow, "MW")
     set_value!(circuit, :reactive_power_flow, reactive_power_flow, "MVAr")
-    if !isnothing(base_voltage_primary)
-        set_value!(circuit, :base_voltage_primary, base_voltage_primary, "kV")
-    end
-    if !isnothing(base_voltage_secondary)
-        set_value!(circuit, :base_voltage_secondary, base_voltage_secondary, "kV")
-    end
+    set_optional_value!(circuit, :base_voltage_primary, base_voltage_primary, "kV")
+    set_optional_value!(circuit, :base_voltage_secondary, base_voltage_secondary, "kV")
     add_component!(sys, circuit)
     return get_value(circuit, :id)
 end
@@ -304,7 +294,7 @@ end
 per-unit BY DOCUMENT CONVENTION on `base_power` (fixed `"pu"`, no discriminator — see the
 Line schema); they are never multiplied by `base_power`. `rating`/`rating_b`/`rating_c`/
 `active_power_flow`/`reactive_power_flow` are power quantities and are multiplied by
-`sys_mbase` (`Line.base_power` is the system base, D-C convention)."""
+`sys_mbase` (`Line.base_power` is the system base)."""
 function make_line!(
     sys::OpenAPISystem,
     reg::IdRegistry,
@@ -331,20 +321,13 @@ function make_line!(
     set_value!(line, :base_power, sys_mbase, "MVA")
     set_value!(line, :b, (from = d["b_fr"], to = d["b_to"]), "pu")
     set_value!(line, :rating, _get_rating(name, d, "rate_a") * sys_mbase, "MVA")
-    rate_b = _get_rating(name, d, "rate_b")
-    if !isnothing(rate_b)
-        set_value!(line, :rating_b, rate_b * sys_mbase, "MVA")
-    end
-    rate_c = _get_rating(name, d, "rate_c")
-    if !isnothing(rate_c)
-        set_value!(line, :rating_c, rate_c * sys_mbase, "MVA")
-    end
+    set_optional_value!(line, :rating_b,
+        _scaled_or_nothing(_get_rating(name, d, "rate_b"), sys_mbase), "MVA")
+    set_optional_value!(line, :rating_c,
+        _scaled_or_nothing(_get_rating(name, d, "rate_c"), sys_mbase), "MVA")
     set_value!(line, :angle_limits, (min = d["angmin"], max = d["angmax"]), "rad")
     add_component!(sys, line)
-    extras = get(d, "ext", Dict{String, Any}())
-    if !isempty(extras)
-        set_ext!(sys, get_value(line, :id), extras)
-    end
+    set_component_ext!(sys, line, get(d, "ext", Dict{String, Any}()))
     return
 end
 
@@ -463,10 +446,7 @@ function make_transformer_2w!(
     set_value!(component, :admittance_units, "DEVICE_BASE")
     set_value!(component, :magnetizing_shunt, (real = d["g_fr"], imag = d["b_fr"]), "pu")
     add_component!(sys, component)
-    extras = get(d, "ext", Dict{String, Any}())
-    if !isempty(extras)
-        set_ext!(sys, get_value(component, :id), extras)
-    end
+    set_component_ext!(sys, component, get(d, "ext", Dict{String, Any}()))
     return
 end
 
@@ -547,10 +527,7 @@ function make_3w_transformer!(
     set_value!(component, :admittance_units, "DEVICE_BASE")
     set_value!(component, :magnetizing_shunt, (real = d["g"], imag = d["b"]), "pu")
     add_component!(sys, component)
-    extras = get(d, "ext", Dict{String, Any}())
-    if !isempty(extras)
-        set_ext!(sys, get_value(component, :id), extras)
-    end
+    set_component_ext!(sys, component, get(d, "ext", Dict{String, Any}()))
     return
 end
 

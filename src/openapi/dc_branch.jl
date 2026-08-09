@@ -8,7 +8,7 @@
 # of the PSS/E-native block) have no PowerModels counterpart, so `_make_per_unit!` never
 # touches them: they arrive already in the natural unit the schema's `NATURAL_UNITS`
 # default expects (ohms, kV, radians, ...). `TwoTerminalGenericHVDCLine`/
-# `TwoTerminalLCCLine`'s `base_power` is always the SYSTEM base (D-C convention, like
+# `TwoTerminalLCCLine`'s `base_power` is always the SYSTEM base (like
 # `Line`/`AreaInterchange`), so every native-PM power field is multiplied by `sys_mbase`.
 #
 # `data["vscline"]` and `data["interarea_transfer"]` are NOT native PowerModels sections;
@@ -91,10 +91,7 @@ function make_lcc_line!(
     )
     set_value!(component, :base_power, sys_mbase, "MVA")
     add_component!(sys, component)
-    extras = get(d, "ext", Dict{String, Any}())
-    if !isempty(extras)
-        set_ext!(sys, get_value(component, :id), extras)
-    end
+    set_component_ext!(sys, component, get(d, "ext", Dict{String, Any}()))
     return
 end
 
@@ -313,10 +310,7 @@ function make_vscline!(
     set_value!(component, :rmpct_to, get(get(d, "ext", Dict()), "RMPCT_TO", 100.0), "1")
     set_value!(component, :rated_dc_voltage, d["rated_dc_voltage"], "kV")
     add_component!(sys, component)
-    extras = get(d, "ext", Dict{String, Any}())
-    if !isempty(extras)
-        set_ext!(sys, get_value(component, :id), extras)
-    end
+    set_component_ext!(sys, component, get(d, "ext", Dict{String, Any}()))
     return
 end
 
@@ -390,7 +384,7 @@ Create one `AreaInterchange` per `data["interarea_transfer"]` entry. Ported from
 `interarea_transfer` block inside PSCB's `read_bus!` (:481-529), grouped here with the
 other DC/interchange readers rather than with `topology.jl`'s bus reader.
 
-# Bug-compatible with PSCB power_models_data.jl:509 (D5 #4) — `active_power_flow =
+# Bug-compatible with PSCB power_models_data.jl:509 — `active_power_flow =
 d["power_transfer"]` assigns PFFP's raw `PTRAN` value (already natural MW, since
 `interarea_transfer` is not a native PowerModels section) into a field PSY declares `SU`,
 with no division by `sys_mbase` first, so a real `get_active_power_flow(interchange,
@@ -434,7 +428,7 @@ function read_area_interchanges!(sys::OpenAPISystem, data::Dict; kwargs...)
         set_value!(component, :id, register!(reg, "AreaInterchange", name))
         set_value!(component, :name, name)
         set_value!(component, :available, true)
-        # Bug-compatible with PSCB power_models_data.jl:509 (D5 #4) — see docstring.
+        # Bug-compatible with PSCB power_models_data.jl:509 — see docstring.
         set_value!(component, :active_power_flow, d["power_transfer"] * sys_mbase, "MW")
         set_value!(component, :from_area, get_id(reg, "Area", area_from_name))
         set_value!(component, :to_area, get_id(reg, "Area", area_to_name))

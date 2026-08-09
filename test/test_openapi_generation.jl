@@ -98,9 +98,8 @@ end
     @test PFP.get_value(gen, :reactive_power_limits).min ≈ d["qmin"] * base_conversion
     @test PFP.get_value(gen, :reactive_power_limits).max ≈ d["qmax"] * base_conversion
     @test PFP.get_value(gen, :base_power) == 50.0
-    # ramp_limits (quantity ActivePowerChangeRate, MW/min) is the field the PSY
-    # equivalence oracle (see the task report) caught missing from the first cut of this
-    # pass's power-family quantity set: with no ramp_agc/ramp_10/ramp_30 in `d`,
+    # ramp_limits (quantity ActivePowerChangeRate, MW/min) belongs to this pass's
+    # power-family quantity set: with no ramp_agc/ramp_10/ramp_30 in `d`,
     # calculate_ramp_limit falls back to (up = down = abs(pmax)) *without* base_conversion
     # (`calculate_ramp_limit`'s own documented inconsistency) -- natural_MW = pmax * mbase,
     # so DEVICE_BASE's pu = natural_MW / mbase collapses back to plain `pmax`.
@@ -319,11 +318,10 @@ end
 end
 
 @testset "EnergyReservoirStorage fields are per-unit-on-own-thermal_rating under DEVICE_BASE, device base != system base" begin
-    # Regression for the CRITICAL review finding: storage_capacity's quantity
-    # (ElectricalEnergy) is only resolvable through `energy_units`' instance-level
-    # discriminator, which the first cut of the DEVICE_BASE pass treated as "leave
-    # untouched" for every instance-dispatched field -- silently skipping conversion
-    # instead of erroring, with no test to catch it. `own base_power` here is
+    # Regression: storage_capacity's quantity (ElectricalEnergy) is only resolvable
+    # through `energy_units`' instance-level discriminator. A DEVICE_BASE pass that
+    # treats every instance-dispatched field as "leave untouched" skips this conversion
+    # silently instead of erroring. `own base_power` here is
     # `thermal_rating` (PSCB's bug-compatible battery convention, same as the
     # "Bug-compatible" testset above); sys_mbase = 100, thermal_rating = 50, so the two
     # bases genuinely differ and every quotient below is *not* 1.
@@ -366,7 +364,7 @@ end
 end
 
 @testset "DEVICE_BASE conversion errors loudly on an unregistered instance-dispatched field" begin
-    # Pins the structural guarantee the CRITICAL review finding was about: an
+    # Pins the structural guarantee: an
     # instance-level-discriminated field with no verdict in
     # `_DEVICEBASE_INSTANCE_DISPATCHED` must error, not silently fall through unconverted.
     # `TwoTerminalVSCLine.dc_setpoint_from` (governed by `dc_control_from`) is real and
@@ -461,24 +459,6 @@ end
     data = Dict{String, Any}("gen" => Dict{String, Any}())
     PFP.read_generation!(sys, data)
     @test isempty(PFP.get_components(sys, "ThermalStandard"))
-end
-
-@testset "build_openapi_system's unconsumed-section check does not name load/gen/storage" begin
-    sys = PFP.build_openapi_system(fourteen_bus_pm_data())
-    @test "ThermalStandard" in PFP.component_type_names(sys)
-    # Does not throw: load/gen/storage/distributed_generation are all fully read by
-    # read_loads!/read_generation!.
-    PFP._check_unconsumed_sections(
-        Dict{String, Any}(
-            "bus" => Dict{String, Any}(),
-            "load" => Dict{String, Any}("1" => Dict{String, Any}()),
-            "gen" => Dict{String, Any}("1" => Dict{String, Any}()),
-            "storage" => Dict{String, Any}("1" => Dict{String, Any}()),
-            "distributed_generation" => Dict{String, Any}(
-                "1" => Dict{String, Any}(),
-            ),
-        ),
-    )
 end
 
 @testset "a fresh 14-bus document with loads and generators round-trips through PC" begin

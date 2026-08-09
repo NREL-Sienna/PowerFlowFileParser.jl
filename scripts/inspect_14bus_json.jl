@@ -11,12 +11,12 @@
 #   <case>.NATURAL_UNITS.json       OpenAPI document, unit_system = NATURAL_UNITS
 #   <case>.DEVICE_BASE.json         OpenAPI document, unit_system = DEVICE_BASE
 #
-# Both OpenAPI documents are now built via `build_openapi_system` (the emit layer
-# landed across tasks 13a-13d) and carry real components — buses, loads, generators,
-# branches, transformers, dc lines, shunts, and the `ImpedanceCorrectionData`/
-# `DiscreteControlledACBranch` shapes 13d added. `../power-openapi-models/scripts/
-# check_json_compat.py` reads this directory's `*.json` (excluding `.pm.json`/
-# `.roundtrip.json`) to validate Julia's output against the generated Python models.
+# Both OpenAPI documents are built via `build_openapi_system` and carry real components —
+# buses, loads, generators, branches, transformers, dc lines, shunts, plus
+# `ImpedanceCorrectionData` and `DiscreteControlledACBranch`.
+# `../power-openapi-models/scripts/check_json_compat.py` reads this directory's `*.json`
+# (excluding `.pm.json`/`.roundtrip.json`) to validate Julia's output against the
+# generated Python models.
 
 import JSON
 using PowerFlowFileParser

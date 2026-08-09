@@ -109,10 +109,7 @@ function make_switched_admittance!(
         set_value!(component, :initial_status, d["initial_status"])
     end
     add_component!(sys, component)
-    extras = get(d, "ext", Dict{String, Any}())
-    if !isempty(extras)
-        set_ext!(sys, get_value(component, :id), extras)
-    end
+    set_component_ext!(sys, component, get(d, "ext", Dict{String, Any}()))
     return
 end
 
@@ -163,10 +160,7 @@ function make_facts!(
         "1",
     )
     add_component!(sys, component)
-    extras = get(d, "ext", Dict{String, Any}())
-    if !isempty(extras)
-        set_ext!(sys, get_value(component, :id), extras)
-    end
+    set_component_ext!(sys, component, get(d, "ext", Dict{String, Any}()))
     return
 end
 
