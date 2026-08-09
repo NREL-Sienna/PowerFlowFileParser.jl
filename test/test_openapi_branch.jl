@@ -118,8 +118,8 @@ end
     @test PFP.get_value(circuit, :base_voltage_secondary) == d["base_voltage_to"]
     # rating is per-unit-on-system-base in the raw pm dict (PowerModels' generic branch
     # correction) but the circuit's rating field is device-base pu (PSY.DU); this fixture
-    # cannot distinguish the two bases (base_power == sys_mbase), see the task report for
-    # the synthetic cross-check that does.
+    # cannot distinguish the two bases (base_power == sys_mbase) — the synthetic cases in
+    # test_openapi_transformer_discriminators.jl do.
     @test PFP.get_value(circuit, :rating) ≈ d["rate_a"] * d["base_power"]
     @test PFP.get_value(circuit, :active_power_flow) == 0.0
     @test PFP.get_value(circuit, :reactive_power_flow) == 0.0
@@ -272,8 +272,7 @@ end
 end
 
 @testset "TransformerCircuit.controlled_quantity_limits passes through UNSCALED under DEVICE_BASE for a power-flow-family control_objective" begin
-    # Regression for a NEW Critical the review round that fixed EnergyReservoirStorage
-    # caught: `controlled_quantity_limits`'s schema quantity DOES switch with
+    # Regression: `controlled_quantity_limits`'s schema quantity DOES switch with
     # `control_objective` (pu for VOLTAGE-family objectives, MW/MVAr for ACTIVE_POWER_FLOW/
     # REACTIVE_POWER_FLOW/CONTROL_OF_DC_LINE-family ones), which made a first cut of the
     # DEVICE_BASE registry classify it `:dynamic` (converting the power-flow-family

@@ -53,6 +53,17 @@ function set_ext!(sys::OpenAPISystem, component_id::Int, extras::Dict{String, An
     return
 end
 
+"""
+Record `extras` against `component`, skipping the `ext` entry entirely when there is
+nothing to record. The shape every reader uses for a pm dict entry's own `"ext"` blob.
+"""
+function set_component_ext!(sys::OpenAPISystem, component, extras::Dict{String, Any})
+    if !isempty(extras)
+        set_ext!(sys, get_value(component, :id), extras)
+    end
+    return
+end
+
 get_ext(sys::OpenAPISystem, component_id::Int) = PC.get_ext(get_document(sys), component_id)
 
 get_base_power(sys::OpenAPISystem) = PC.get_base_power(get_document(sys))
@@ -94,7 +105,7 @@ end
 Record that `entity_id` contributes to the service `service_id`.
 
 A membership is a row in the same unified `supplemental_attribute_associations` table as
-every other attribute link (D10): `service_id` rides as `attribute_id`, so a reader tells
+every other attribute link: `service_id` rides as `attribute_id`, so a reader tells
 a membership from a plain attribute by looking that id up as a component. There is no
 model object to hand `PC.add_supplemental_attribute!` — the "attribute" is a component
 that already exists — so the row is appended directly, which `PC.validate_document`

@@ -59,11 +59,8 @@ end
 end
 
 @testset "unit_system is carried into the document" begin
-    natural = _round_trip(_serialize_test_system())
-    @test natural["unit_system"] == "NATURAL_UNITS"
-
-    sys = PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE")
-    device_base = _round_trip(sys)
+    # The NATURAL_UNITS side is covered by "document top-level shape" above.
+    device_base = _round_trip(PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE"))
     @test device_base["unit_system"] == "DEVICE_BASE"
 end
 

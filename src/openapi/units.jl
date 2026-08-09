@@ -1,22 +1,20 @@
-"""
-Unit-checked assignment onto generated OpenAPI components.
-
-Components are built empty and populated one property at a time, mirroring how
-OpenAPI.jl itself deserializes them (`from_json(T(), json)` then per-property).
-Every numeric assignment names the unit of the incoming value; the declared unit
-comes from the schema annotations generated into PowerOpenAPIModels.
-
-The two arities are the enforcement. A property that declares a unit can only be
-written by the 4-argument form, and one that does not can only be written by the
-3-argument form, so the check cannot be skipped by choosing the shorter call.
-
-Assignment goes through `setproperty!` rather than `setfield!`, which runs the
-generated `validate_property` and so keeps enum and range checks in force.
-
-A property annotated `x-unit-base` is per-unit on a sibling property rather than on
-a scalar factor. Assigning one converts through that sibling's own declared unit,
-so the sibling must be assigned first.
-"""
+# Unit-checked assignment onto generated OpenAPI components.
+#
+# Components are built empty and populated one property at a time, mirroring how
+# OpenAPI.jl itself deserializes them (`from_json(T(), json)` then per-property).
+# Every numeric assignment names the unit of the incoming value; the declared unit
+# comes from the schema annotations generated into PowerOpenAPIModels.
+#
+# The two arities are the enforcement. A property that declares a unit can only be
+# written by the 4-argument form, and one that does not can only be written by the
+# 3-argument form, so the check cannot be skipped by choosing the shorter call.
+#
+# Assignment goes through `setproperty!` rather than `setfield!`, which runs the
+# generated `validate_property` and so keeps enum and range checks in force.
+#
+# A property annotated `x-unit-base` is per-unit on a sibling property rather than on
+# a scalar factor. Assigning one converts through that sibling's own declared unit,
+# so the sibling must be assigned first.
 
 """
 Constructor for a compound property, e.g. `MinMax` for `ACBus.voltage_limits`.
@@ -239,6 +237,20 @@ end
 function set_value!(o::OpenAPI.APIModel, prop::Symbol, value)
     _reject_declared(o, prop)
     setproperty!(o, prop, value)
+    return
+end
+
+"""Assign `prop` only when `value` is present; the schemas leave these fields optional and
+the pm dict does not always carry one."""
+function set_optional_value!(
+    o::OpenAPI.APIModel,
+    prop::Symbol,
+    value,
+    source_unit::AbstractString,
+)
+    if !isnothing(value)
+        set_value!(o, prop, value, source_unit)
+    end
     return
 end
 

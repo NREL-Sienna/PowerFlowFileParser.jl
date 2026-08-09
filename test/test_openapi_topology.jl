@@ -9,12 +9,10 @@
     @test length(PFP.get_components(sys, "ACBus")) == 22
     @test length(PFP.get_components(sys, "Area")) == 1
     @test length(PFP.get_components(sys, "LoadZone")) == 1
-    # Coefficient-level load/generator/cost assertions live in test_openapi_load.jl and
-    # test_openapi_generation.jl (task 13b); branch/transformer/dc-line/shunt assertions
-    # live in test_openapi_branch.jl and test_openapi_dc_shunt.jl (task 13c);
-    # switch/breaker and ImpedanceCorrectionData assertions live in
-    # test_openapi_switch.jl and test_openapi_attributes.jl (task 13d); this just locks
-    # in the component census.
+    # Coefficient-level assertions live in the per-reader test files
+    # (test_openapi_load.jl, test_openapi_generation.jl, test_openapi_branch.jl,
+    # test_openapi_dc_shunt.jl, test_openapi_switch.jl, test_openapi_attributes.jl);
+    # this just locks in the component census.
     @test length(PFP.get_components(sys, "StandardLoad")) == 13
     @test length(PFP.get_components(sys, "ThermalStandard")) == 7
     @test length(PFP.get_components(sys, "Line")) == 20
@@ -75,7 +73,6 @@ end
 
 @testset "every KNOWN_UNCONSUMED_PM_SECTIONS entry carries a non-empty reason" begin
     for (key, reason) in PFP.KNOWN_UNCONSUMED_PM_SECTIONS
-        @test reason isa AbstractString
         @test !isempty(strip(reason))
     end
 end
@@ -210,8 +207,8 @@ end
 
 @testset "add_arc! deduplicates a bus pair regardless of direction" begin
     # Topology only (no branches/transformers/dc lines) so the Arc census this test
-    # asserts is self-contained; `build_openapi_system` now creates real arcs of its own
-    # (task 13c), which would make a fixed expected count fragile.
+    # asserts is self-contained; `build_openapi_system` creates real arcs of its own,
+    # which would make a fixed expected count fragile.
     data = fourteen_bus_pm_data().data
     sys = PFP.OpenAPISystem(Float64(data["baseMVA"]))
     PFP.read_loadzones!(sys, data)
@@ -250,8 +247,7 @@ end
     @test length(PFP.PC.get_components(doc, "DiscreteControlledACBranch")) == 2
     @test length(PFP.PC.get_supplemental_attributes(doc, "ImpedanceCorrectionData")) == 8
     # GeographicInfo stays empty: "substation" is allow-listed
-    # (`KNOWN_UNCONSUMED_PM_SECTIONS`, build.jl), not implemented, in this task — see the
-    # task-13d report.
+    # (`KNOWN_UNCONSUMED_PM_SECTIONS`, build.jl), not implemented.
     @test isempty(PFP.PC.get_components(doc, "GeographicInfo"))
 end
 

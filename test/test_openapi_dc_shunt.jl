@@ -148,7 +148,7 @@ function _two_area_pm_data(; power_transfer::Float64 = 50.0, area_to::Int = 2)
     )
 end
 
-@testset "Bug-compatible: AreaInterchange.active_power_flow is power_transfer ×baseMVA a second time (D5 #4)" begin
+@testset "Bug-compatible: AreaInterchange.active_power_flow is power_transfer ×baseMVA a second time" begin
     data = _two_area_pm_data()
     sys = PFP.OpenAPISystem(Float64(data["baseMVA"]))
     PFP.read_loadzones!(sys, data)

@@ -48,9 +48,9 @@
 # A field whose Type-level `declared_unit`/`declared_quantity` throws depends on a runtime
 # discriminator sibling (`parameter_units`, `admittance_units`, `energy_units`,
 # `voltage_setpoint_units`, `dc_voltage_units`, `power_mode`, ...). That discriminator is
-# used for two semantically different things in this schema, and conflating them is a bug
-# (found in review — `EnergyReservoirStorage.storage_capacity` fell through unconverted and
-# unflagged under the original single-bucket "instance-dispatched => skip" rule):
+# used for two semantically different things in this schema, and conflating them is a bug:
+# a single-bucket "instance-dispatched => skip" rule leaves
+# `EnergyReservoirStorage.storage_capacity` unconverted and unflagged.
 #
 #   1. A **representation switch** between per-unit and natural for the SAME field
 #      (`parameter_units`/`admittance_units`/`voltage_setpoint_units`/`dc_voltage_units`
@@ -152,7 +152,7 @@ const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
     # energy_units is a NATURAL-UNIT CHOICE (MWh vs MWmin), not a pu-vs-natural
     # representation switch: both branches are genuine energy quantities, and PSY's own
     # converter divides storage_capacity by device base_power regardless of which
-    # (implemented) branch is active. THE bug this fix round closed.
+    # (implemented) branch is active.
     ("EnergyReservoirStorage", :storage_capacity) => :convert_own,
     # power_mode selects between two DIFFERENT PHYSICAL QUANTITIES (ActivePower vs
     # CurrentFlow), not two representations of the same one -- resolved per component from

@@ -67,19 +67,6 @@ _natural_value(value::Real, base::Float64) = value * base
 _natural_value(limits::NamedTuple, base::Float64) = map(v -> v * base, limits)
 _natural_value(::Nothing, ::Float64) = nothing
 
-"""Assign an optional compound property (`ramp_limits`, absent when
-`calculate_ramp_limit` finds nothing to use), skipping `set_value!` when there is
-nothing to assign."""
-function _set_optional_limits!(component, prop::Symbol, limits, base::Float64,
-    unit::AbstractString)
-    natural = _natural_value(limits, base)
-    if isnothing(natural)
-        return
-    end
-    set_value!(component, prop, natural, unit)
-    return
-end
-
 """
 Default component name from a pm dict entry. Ported verbatim from PSCB's
 `_get_pm_dict_name`; the `"shunt_bus"` branch serves shunt.jl's readers, which share it.
@@ -226,15 +213,14 @@ function make_thermal_generator!(
         "MW")
     set_value!(component, :reactive_power_limits,
         _natural_value(reactive_power_limits, mbase), "MVAr")
-    _set_optional_limits!(component, :ramp_limits, ramp_limits, mbase, "MW/min")
+    set_optional_value!(component, :ramp_limits, _natural_value(ramp_limits, mbase),
+        "MW/min")
     set_value!(component, :operation_cost, make_thermal_cost(gen_name, pm_gen, sys_mbase))
     set_value!(component, :base_power, mbase, "MVA")
     set_value!(component, :prime_mover_type, prime_mover_type(get(pm_gen, "type", "OT")))
     set_value!(component, :fuel, thermal_fuel(get(pm_gen, "fuel", "OTHER")))
     add_component!(sys, component)
-    if !isempty(extras)
-        set_ext!(sys, get_value(component, :id), extras)
-    end
+    set_component_ext!(sys, component, extras)
     return
 end
 
@@ -277,7 +263,8 @@ function _make_hydro_dispatch_body!(
         "MW")
     set_value!(component, :reactive_power_limits,
         _natural_value(reactive_power_limits, mbase), "MVAr")
-    _set_optional_limits!(component, :ramp_limits, ramp_limits, mbase, "MW/min")
+    set_optional_value!(component, :ramp_limits, _natural_value(ramp_limits, mbase),
+        "MW/min")
     set_value!(component, :operation_cost, make_hydro_cost())
     set_value!(component, :base_power, mbase, "MVA")
     add_component!(sys, component)
@@ -420,9 +407,7 @@ function make_synchronous_condenser!(
         _natural_value(reactive_power_limits, mbase), "MVAr")
     set_value!(component, :base_power, mbase, "MVA")
     add_component!(sys, component)
-    if !isempty(extras)
-        set_ext!(sys, get_value(component, :id), extras)
-    end
+    set_component_ext!(sys, component, extras)
     return
 end
 

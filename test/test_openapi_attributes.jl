@@ -10,7 +10,6 @@
     # secondary-winding correction table by BOTH 3W transformers in this fixture
     # ("BUS 109-BUS 104-BUS 107-i_1" and "BUS 113-BUS 110-BUS 114-i_1"), and the oracle
     # shares one `ImpedanceCorrectionData` object between them rather than building two.
-    # See the task-13d report for the oracle-side count.
     icts = PFP.get_supplemental_attributes(sys, "ImpedanceCorrectionData")
     @test length(icts) == 8
 

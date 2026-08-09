@@ -7,7 +7,7 @@
     breaker_d = only(values(data["breaker"]))
     # Cross-checked against PSCB's oracle on this fixture: two DiscreteControlledACBranch
     # components, "BUS 104-BUS 105-i_1" (SWITCH) and "BUS 112-BUS 113-i_1" (BREAKER), both
-    # CLOSED and available — see the task-13d report.
+    # CLOSED and available.
     @test length(PFP.get_components(sys, "DiscreteControlledACBranch")) == 2
 
     switch = only(
@@ -25,7 +25,7 @@
     @test PFP.get_value(switch, :rating) == 0.0
     @test PFP.get_value(switch, :active_power_flow) == 0.0
     @test PFP.get_value(switch, :reactive_power_flow) == 0.0
-    @test PFP.get_value(switch, :base_power) == 100.0  # sys_mbase (D-C convention)
+    @test PFP.get_value(switch, :base_power) == 100.0  # sys_mbase
     @test PFP.get_value(switch, :normal_branch_status) == "CLOSED"  # schema default, unset
 
     breaker = only(
