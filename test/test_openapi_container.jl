@@ -76,15 +76,9 @@ end
 @testset "add_service_association! records a membership row" begin
     sys = PFP.OpenAPISystem(100.0)
     PFP.add_component!(sys, _bus(1, "Abel"))
-    PFP.add_service_association!(sys, 99, 1, "ConstantReserve")
-    assoc = only(PFP.get_document(sys).supplemental_attribute_associations)
-    @test PFP.get_value(assoc, :attribute_id) == 99
+    PFP.add_service_association!(sys, 99, 1)
+    assoc = only(PFP.get_document(sys).service_associations)
+    @test PFP.get_value(assoc, :service_id) == 99
     @test PFP.get_value(assoc, :entity_id) == 1
-    @test PFP.get_value(assoc, :attribute_type) == "ConstantReserve"
-    @test_throws IS.DataFormatError PFP.add_service_association!(
-        sys,
-        99,
-        1,
-        "ConstantReserve",
-    )
+    @test_throws IS.DataFormatError PFP.add_service_association!(sys, 99, 1)
 end

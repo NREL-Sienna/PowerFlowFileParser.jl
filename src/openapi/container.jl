@@ -89,8 +89,9 @@ end
 """
 Record a supplemental attribute and the entity it describes.
 
-`group_index`/`role` are left at their `nothing` default: they exist for plant-family
-groupings and service memberships, neither of which this parser emits.
+Plant-family groupings and service memberships are recorded in their own tables, not this
+one — see `add_service_association!` below — so this parser only ever emits a plain
+attribute row.
 """
 function add_supplemental_attribute!(
     sys::OpenAPISystem,
@@ -104,12 +105,9 @@ end
 """
 Record that `entity_id` contributes to the service `service_id`.
 
-A membership is a row in the same unified `supplemental_attribute_associations` table as
-every other attribute link: `service_id` rides as `attribute_id`, so a reader tells
-a membership from a plain attribute by looking that id up as a component. There is no
-model object to hand `PC.add_supplemental_attribute!` — the "attribute" is a component
-that already exists — so the row is appended directly, which `PC.validate_document`
-accounts for.
+A membership is a row in the dedicated `service_associations` table: `entity_id` may name
+a Device, a Branch (TransmissionInterface), or another Service (GroupReserve), so no
+member-type discriminator is needed.
 
 Duplicate pairs are rejected rather than collapsed: eligibility rules overlap, so the
 same device matching one reserve twice means a malformed rule set.
@@ -118,11 +116,10 @@ function add_service_association!(
     sys::OpenAPISystem,
     service_id::Int,
     entity_id::Int,
-    attribute_type::AbstractString,
 )
-    associations = get_document(sys).supplemental_attribute_associations
+    associations = get_document(sys).service_associations
     for existing in associations
-        if get_value(existing, :attribute_id) == service_id &&
+        if get_value(existing, :service_id) == service_id &&
            get_value(existing, :entity_id) == entity_id
             throw(
                 IS.DataFormatError(
@@ -133,11 +130,7 @@ function add_service_association!(
     end
     push!(
         associations,
-        PC.SupplementalAttributeAssociation(;
-            attribute_id = service_id,
-            entity_id = entity_id,
-            attribute_type = String(attribute_type),
-        ),
+        PO.ServiceAssociation(; service_id = service_id, entity_id = entity_id),
     )
     return
 end

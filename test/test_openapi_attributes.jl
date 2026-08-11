@@ -97,8 +97,6 @@ end
     )
     @test PFP.get_value(row, :entity_id) == PFP.get_value(two_w, :id)
     @test PFP.get_value(row, :attribute_type) == "ImpedanceCorrectionData"
-    @test isnothing(PFP.get_value(row, :group_index))
-    @test isnothing(PFP.get_value(row, :role))
 end
 
 @testset "read_attributes! is a no-op when impedance_correction is absent" begin
