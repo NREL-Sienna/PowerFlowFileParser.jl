@@ -20,6 +20,7 @@ YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 # expose are generated and not yet released. Switch to a tagged rev before merge.
 PowerCoreOpenAPIModels = {path = "../PowerOpenAPIModels/PowerCoreOpenAPIModels.jl"}
 PowerOperationsOpenAPIModels = {path = "../PowerOpenAPIModels/PowerOperationsOpenAPIModels.jl"}
+InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "feat/rust-time-series-store"}
 
 [compat]
 DataStructures = "0.19.3"
