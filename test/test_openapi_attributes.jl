@@ -97,8 +97,13 @@ end
     )
     @test PFP.get_value(row, :entity_id) == PFP.get_value(two_w, :id)
     @test PFP.get_value(row, :attribute_type) == "ImpedanceCorrectionData"
-    @test isnothing(PFP.get_value(row, :group_index))
-    @test isnothing(PFP.get_value(row, :role))
+    # A plain attribute link emits nothing in the plant-family or service tables. This used
+    # to assert `group_index`/`role` were unset on the row itself; those columns are gone
+    # with the un-consolidation, so the row type enforces that much structurally and what is
+    # left worth checking is that no row landed in the tables that replaced them.
+    @test isempty(doc.plant_associations)
+    @test isempty(doc.combined_cycle_associations)
+    @test isempty(doc.service_associations)
 end
 
 @testset "read_attributes! is a no-op when impedance_correction is absent" begin
