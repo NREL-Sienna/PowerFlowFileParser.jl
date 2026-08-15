@@ -7,15 +7,27 @@ authors = ["Sienna Team"]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
 InfrastructureSystems = "2cd47ed4-ca9b-11e9-27f2-ab636a7671f1"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+OpenAPI = "d5e62ea6-ddf3-4d43-8e4c-ad5e6c8bfd7d"
+PowerCoreOpenAPIModels = "b7b40286-e793-417d-a9a0-b1583e4da1cb"
+PowerOperationsOpenAPIModels = "a372b6d7-45a2-44c2-8199-6a724b72e8ff"
 Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
-YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
+
+[sources]
+# These packages are generated and not yet released, so they resolve from the branch
+# rather than the registry. Switch to a tagged rev once one exists.
+PowerCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/openapi_regen", subdir = "PowerCoreOpenAPIModels.jl"}
+PowerOperationsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/openapi_regen", subdir = "PowerOperationsOpenAPIModels.jl"}
 
 [compat]
 DataStructures = "0.19.3"
 DocStringExtensions = "~0.8, ~0.9"
 InfrastructureSystems = "^3.2"
+JSON = "1"
 LinearAlgebra = "1"
+OpenAPI = "0.2"
+PowerCoreOpenAPIModels = "0.1"
+PowerOperationsOpenAPIModels = "0.1"
 Unicode = "1"
-YAML = "0.4.16"
 julia = "^1.10"

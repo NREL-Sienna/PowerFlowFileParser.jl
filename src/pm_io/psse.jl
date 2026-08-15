@@ -7,7 +7,7 @@ specification.
 """
 function _init_bus!(bus::Dict{String, Any}, id::Int)
     bus["bus_i"] = id
-    bus["bus_type"] = 1
+    bus["bus_type"] = PM_BUS_TYPE_PQ
     bus["area"] = 1
     bus["vm"] = 1.0
     bus["va"] = 0.0
@@ -184,7 +184,10 @@ function _psse2pm_branch!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
                 bus_to = pm_data["bus"][sub_data["t_bus"]]
                 sub_data["base_voltage_to"] = bus_to["base_kv"]
                 if pm_data["has_isolated_type_buses"]
-                    if !(bus_from["bus_type"] == 4 || bus_to["bus_type"] == 4)
+                    if !(
+                        bus_from["bus_type"] == PM_BUS_TYPE_ISOLATED ||
+                        bus_to["bus_type"] == PM_BUS_TYPE_ISOLATED
+                    )
                         push!(pm_data["connected_buses"], sub_data["f_bus"])
                         push!(pm_data["connected_buses"], sub_data["t_bus"])
                     end
@@ -261,6 +264,69 @@ function _psse2pm_branch!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
     return
 end
 
+"""
+Salvage line-connected shunts from a BRANCH record that is really a switching
+device (CKT prefixed `@` or `*`), emitting each non-zero end as its own shunt.
+
+A System Switching Device carries only a reactance below the zero-impedance
+threshold — the RAW record has no GI/BI/GJ/BJ columns at all, and a breaker or
+disconnect has no line-connected reactor or capacitor to describe. So a
+switching-device row carrying non-zero line shunts is malformed input. Dropping
+it would silently lose admittance, and keeping it on the switching device would
+model a shunt hanging off a breaker, so the admittance is relocated to the bus
+at the end it was declared on and the caller is warned.
+
+GI/BI/GJ/BJ are entered in pu **on the system base**: a BRANCH record declares no
+MVA base of its own, unlike a transformer winding which carries SBASE1-2 and
+friends, so SBASE is the only base available to interpret them against. A FIXED
+SHUNT's GL/BL are MW/MVAr at unity voltage instead, and `_make_per_unit!`
+divides every shunt `gs`/`bs` by the case base. Scaling by `baseMVA` here puts
+the value on the same footing as every other shunt, so that division lands back
+on the system-base pu value the RAW declared.
+
+The status is taken from the device's ST because the RAW defines these shunts as
+"connected to and switched with the line": the admittance is only in service
+when the device it was declared on is.
+"""
+function _switching_device_line_shunts!(pm_data::Dict, branch::Dict, nb)
+    ckt = branch["CKT"]
+    # A negative terminal bus number marks the metered end; the bus is its magnitude.
+    from_bus = abs(branch["I"])
+    to_bus = abs(branch["J"])
+    ends = (
+        ("I", from_bus, to_bus, get(branch, "GI", 0.0), get(branch, "BI", 0.0)),
+        ("J", to_bus, from_bus, get(branch, "GJ", 0.0), get(branch, "BJ", 0.0)),
+    )
+    for (label, bus_number, other_bus, gs, bs) in ends
+        if iszero(gs) && iszero(bs)
+            continue
+        end
+        @warn(
+            "Switching device $from_bus -> $to_bus with CKT=$ckt declares a " *
+            "line-connected shunt at its $label end (G=$gs, B=$bs). A switching " *
+            "device has no line shunt, so this admittance is being parsed as a " *
+            "shunt at bus $bus_number instead of being attached to the " *
+            "DiscreteControlledACBranch. Verify the source data: a branch with " *
+            "real line shunts is a transmission line, not a breaker or switch."
+        )
+        if !haskey(pm_data, "shunt")
+            pm_data["shunt"] = []
+        end
+        shunt_data = Dict{String, Any}()
+        # Same terminal lookup the branch itself uses, so under a node-breaker
+        # model the shunt lands on the node the switching device attaches to.
+        shunt_data["shunt_bus"] = _nb_target(nb, bus_number, "B", other_bus, ckt)
+        mva_base = pm_data["baseMVA"]
+        shunt_data["gs"] = gs * mva_base
+        shunt_data["bs"] = bs * mva_base
+        shunt_data["status"] = get(branch, "ST", 1)
+        shunt_data["source_id"] = ["branch shunt", from_bus, to_bus, ckt, label]
+        shunt_data["index"] = length(pm_data["shunt"]) + 1
+        push!(pm_data["shunt"], shunt_data)
+    end
+    return
+end
+
 function branch_isolated_bus_modifications!(pm_data::Dict, branch_data::Dict)
     bus_data = pm_data["bus"]
     from_bus_no = branch_data["f_bus"]
@@ -273,15 +339,18 @@ function branch_isolated_bus_modifications!(pm_data::Dict, branch_data::Dict)
     to_bus = bus_data[to_bus_no]
 
     status_field = haskey(branch_data, "br_status") ? "br_status" : "state"
-    if (from_bus["bus_type"] == 4 || to_bus["bus_type"] == 4) &&
+    if (
+        from_bus["bus_type"] == PM_BUS_TYPE_ISOLATED ||
+        to_bus["bus_type"] == PM_BUS_TYPE_ISOLATED
+    ) &&
        branch_data[status_field] == 1
         @warn "Branch connected between buses $(from_bus_no) -> $(to_bus_no) is connected to an isolated bus. Setting branch status to 0."
         branch_data[status_field] = 0
     end
-    if from_bus["bus_type"] == 4
+    if from_bus["bus_type"] == PM_BUS_TYPE_ISOLATED
         push!(pm_data["candidate_isolated_to_pq_buses"], from_bus_no)
     end
-    if to_bus["bus_type"] == 4
+    if to_bus["bus_type"] == PM_BUS_TYPE_ISOLATED
         push!(pm_data["candidate_isolated_to_pq_buses"], to_bus_no)
     end
     return
@@ -296,15 +365,15 @@ function transformer3W_isolated_bus_modifications!(pm_data::Dict, branch_data::D
     secondary_bus = bus_data[secondary_bus_number]
     tertiary_bus = bus_data[tertiary_bus_number]
     if branch_data["available"] == 1
-        if primary_bus["bus_type"] == 4
+        if primary_bus["bus_type"] == PM_BUS_TYPE_ISOLATED
             branch_data["available_primary"] = 0
             @warn "Three winding transformer primary bus $(primary_bus_number) is isolated. Setting primary winding status to 0."
         end
-        if secondary_bus["bus_type"] == 4
+        if secondary_bus["bus_type"] == PM_BUS_TYPE_ISOLATED
             branch_data["available_secondary"] = 0
             @warn "Three winding transformer secondary bus $(secondary_bus_number) is isolated. Setting secondary winding status to 0."
         end
-        if tertiary_bus["bus_type"] == 4
+        if tertiary_bus["bus_type"] == PM_BUS_TYPE_ISOLATED
             branch_data["available_tertiary"] = 0
             @warn "Three winding transformer tertiary bus $(tertiary_bus_number) is isolated. Setting tertiary winding status to 0."
         end
@@ -317,13 +386,13 @@ function transformer3W_isolated_bus_modifications!(pm_data::Dict, branch_data::D
             @warn "All three windings are unavailable. Setting overall transformer availability to 0"
         end
     end
-    if primary_bus["bus_type"] == 4
+    if primary_bus["bus_type"] == PM_BUS_TYPE_ISOLATED
         push!(pm_data["candidate_isolated_to_pq_buses"], primary_bus_number)
     end
-    if secondary_bus["bus_type"] == 4
+    if secondary_bus["bus_type"] == PM_BUS_TYPE_ISOLATED
         push!(pm_data["candidate_isolated_to_pq_buses"], secondary_bus_number)
     end
-    if tertiary_bus["bus_type"] == 4
+    if tertiary_bus["bus_type"] == PM_BUS_TYPE_ISOLATED
         push!(pm_data["candidate_isolated_to_pq_buses"], tertiary_bus_number)
     end
     return
@@ -346,7 +415,7 @@ function _is_synch_condenser(
     has_q_limits = (sub_data["qmax"] != 0.0 || sub_data["qmin"] != 0.0)
     has_zero_p_limits = (sub_data["pmax"] == 0.0 && sub_data["pmin"] == 0.0)
     zero_control_mode = sub_data["m_control_mode"] == 0
-    is_pv_bus = pm_data["bus"][control_bus]["bus_type"] == 2
+    is_pv_bus = pm_data["bus"][control_bus]["bus_type"] == PM_BUS_TYPE_PV
 
     if is_zero_pg && has_q_limits && has_zero_p_limits && zero_control_mode
         if !is_pv_bus
@@ -366,16 +435,16 @@ function _determine_injector_status(
 )
     # Special case for FACTS:  MODE = 0 -> Unavailable, MODE = 1 -> Normal mode, MODE = 2 -> Link bypassed
     if status_key == "MODE"
-        device_status = pop!(sub_data, status_key) != 0 ? true : false
+        device_status = pop!(sub_data, status_key) != 0
     else
-        device_status = pop!(sub_data, status_key) == 1 ? true : false
+        device_status = pop!(sub_data, status_key) == 1
     end
     # If device is off keep it off.
     if !device_status
         return false
     end
     # If device is on check the topology and status of the bus it is connected to.
-    if pm_data["bus"][gen_bus]["bus_type"] == 4
+    if pm_data["bus"][gen_bus]["bus_type"] == PM_BUS_TYPE_ISOLATED
         gen_bus_connected = gen_bus ∈ pm_data["connected_buses"]
         if gen_bus_connected && device_status
             @warn "Device connected to bus $(gen_bus) is marked as available, but the bus is set isolated and not topologically isolated. Setting device status to 1 and the bus added to candidate for conversion."
@@ -624,7 +693,7 @@ function _psse2pm_bus!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
             sub_data["bus_i"] = bus["I"]
             sub_data["bus_type"] = pop!(bus, "IDE")
-            if sub_data["bus_type"] == 4
+            if sub_data["bus_type"] == PM_BUS_TYPE_ISOLATED
                 @warn "The PSS(R)E data contains buses designated as isolated. The parser will check if the buses are connected or topologically isolated."
                 pm_data["has_isolated_type_buses"] = true
                 sub_data["bus_status"] = false
@@ -759,6 +828,15 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
 end
 
 """
+Whether `key` names one of a SWITCHED SHUNT record's up-to-eight admittance-block columns
+for `prefix` — `N1`..`N8` (step counts) or `B1`..`B8` (admittances). Exact, so a future
+column merely starting with the same letter is not swept in.
+"""
+function _is_switched_shunt_block(key::AbstractString, prefix::Char)
+    return ncodeunits(key) == 2 && key[1] == prefix && '1' <= key[2] <= '8'
+end
+
+"""
     _psse2pm_shunt!(pm_data, pti_data)
 
 Parses PSS(R)E-style Fixed and Switched Shunt data into a PowerModels-style
@@ -830,9 +908,9 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
             sub_data["admittance_limits"] =
                 (pop!(switched_shunt, "VSWLO"), pop!(switched_shunt, "VSWHI"))
 
+            # N1..N8 hold the step count of each admittance block, B1..B8 its admittance.
             step_numbers = Dict(
-                k => v for
-                (k, v) in switched_shunt if startswith(k, "N") && isdigit(last(k))
+                k => v for (k, v) in switched_shunt if _is_switched_shunt_block(k, 'N')
             )
             step_numbers_sorted =
                 sort(collect(keys(step_numbers)); by = x -> parse(Int, x[2:end]))
@@ -852,7 +930,7 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
 
             y_increment = Dict(
                 k => v for
-                (k, v) in switched_shunt if startswith(k, "B") && isdigit(last(k))
+                (k, v) in switched_shunt if _is_switched_shunt_block(k, 'B')
             )
             y_increment_sorted =
                 sort(collect(keys(y_increment)); by = x -> parse(Int, x[2:end]))
@@ -905,7 +983,9 @@ function apply_tap_correction!(
     cw_value::Int64,
     winding_name::String,
 )
-    if abs(transformer[cod_key]) ∈ [1, 2] && cw_value ∈ [1, 2, 3]
+    # Only |COD| 1/2 define a tap ladder; 3/4/5 are phase-shift, DC-line and asymmetric
+    # control, whose RMI/RMA bracket an angle or a flow rather than a turns ratio.
+    if abs(transformer[cod_key]) ∈ (1, 2) && cw_value ∈ (1, 2, 3)
         tap_positions = collect(
             range(
                 transformer[rmi_key],
@@ -937,7 +1017,7 @@ function _transformer_mag_pu_conversion(
         @warn "Transformer $(sub_data["f_bus"]) -> $(sub_data["t_bus"]) has zero MAG1 and MAG2 values."
         return 0.0, 0.0
     else
-        G_pu = 1e-6 * transformer["MAG1"] / base_power
+        G_pu = PSSE_MICRO_UNIT_SCALE * transformer["MAG1"] / base_power
         mag_diff = transformer["MAG2"]^2 - G_pu^2
         @assert mag_diff >= -ZERO_IMPEDANCE_REACTANCE_THRESHOLD
         B_pu = sqrt(max(0.0, mag_diff))
@@ -962,21 +1042,21 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool, 
     if haskey(pti_data, "TRANSFORMER")
         starbus_id = 10^ceil(Int, log10(abs(_find_max_bus_id(pm_data)))) + 1
         for transformer in pti_data["TRANSFORMER"]
-            if !(transformer["CZ"] in [1, 2, 3])
+            if !(transformer["CZ"] in (1, 2, 3))
                 @warn(
                     "transformer CZ value outside of valid bounds assuming the default value of 1.  Given $(transformer["CZ"]), should be 1, 2 or 3",
                 )
                 transformer["CZ"] = 1
             end
 
-            if !(transformer["CW"] in [1, 2, 3])
+            if !(transformer["CW"] in (1, 2, 3))
                 @warn(
                     "transformer CW value outside of valid bounds assuming the default value of 1.  Given $(transformer["CW"]), should be 1, 2 or 3",
                 )
                 transformer["CW"] = 1
             end
 
-            if !(transformer["CM"] in [1, 2])
+            if !(transformer["CM"] in (1, 2))
                 @warn(
                     "transformer CM value outside of valid bounds assuming the default value of 1.  Given $(transformer["CM"]), should be 1 or 2",
                 )
@@ -1005,7 +1085,10 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool, 
                 if pm_data["has_isolated_type_buses"]
                     bus_from = pm_data["bus"][sub_data["f_bus"]]
                     bus_to = pm_data["bus"][sub_data["t_bus"]]
-                    if !(bus_from["bus_type"] == 4 || bus_to["bus_type"] == 4)
+                    if !(
+                        bus_from["bus_type"] == PM_BUS_TYPE_ISOLATED ||
+                        bus_to["bus_type"] == PM_BUS_TYPE_ISOLATED
+                    )
                         push!(pm_data["connected_buses"], sub_data["f_bus"])
                         push!(pm_data["connected_buses"], sub_data["t_bus"])
                     end
@@ -1051,7 +1134,9 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool, 
                     br_r, br_x = transformer["R1-2"], transformer["X1-2"]
                 else  # NOT "for resistance and reactance in pu on system MVA base and winding voltage base"
                     if transformer["CZ"] == 3  # "for transformer load loss in watts and impedance magnitude in pu on a specified MVA base and winding voltage base."
-                        br_r = 1e-6 * transformer["R1-2"] / sub_data["base_power"] # device pu
+                        br_r =
+                            PSSE_MICRO_UNIT_SCALE * transformer["R1-2"] /
+                            sub_data["base_power"] # device pu
                         br_x = sqrt(transformer["X1-2"]^2 - br_r^2) # device pu
                     else # "CZ" = 1 in system base pu
                         @assert transformer["CZ"] == 1
@@ -1308,11 +1393,11 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool, 
                     bus_tertiary = pm_data["bus"][bus_id3]
                     push!(pm_data["connected_buses"], starbus_id)   # Starbus should never be converted to isolated
                     # If one bus winding is isolated, the other two buses should still be considered connected:
-                    !(bus_primary["bus_type"] == 4) &&
+                    !(bus_primary["bus_type"] == PM_BUS_TYPE_ISOLATED) &&
                         push!(pm_data["connected_buses"], bus_id1)
-                    !(bus_secondary["bus_type"] == 4) &&
+                    !(bus_secondary["bus_type"] == PM_BUS_TYPE_ISOLATED) &&
                         push!(pm_data["connected_buses"], bus_id2)
-                    !(bus_tertiary["bus_type"] == 4) &&
+                    !(bus_tertiary["bus_type"] == PM_BUS_TYPE_ISOLATED) &&
                         push!(pm_data["connected_buses"], bus_id3)
                 end
                 # Add parameters to the 3w-transformer key
@@ -1382,9 +1467,9 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool, 
                 # Unit Transformations
                 if transformer["CZ"] == 3  # "for transformer load loss in watts and impedance magnitude in pu on a specified MVA base and winding voltage base."
                     # In device base
-                    br_r12 *= 1e-6 / sub_data["base_power_12"]
-                    br_r23 *= 1e-6 / sub_data["base_power_23"]
-                    br_r31 *= 1e-6 / sub_data["base_power_31"]
+                    br_r12 *= PSSE_MICRO_UNIT_SCALE / sub_data["base_power_12"]
+                    br_r23 *= PSSE_MICRO_UNIT_SCALE / sub_data["base_power_23"]
+                    br_r31 *= PSSE_MICRO_UNIT_SCALE / sub_data["base_power_31"]
 
                     br_x12 = sqrt(br_x12^2 - br_r12^2)
                     br_x23 = sqrt(br_x23^2 - br_r23^2)
@@ -1814,7 +1899,7 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             else
                 sub_data["power_mode"] = false
             end
-            sub_data["available"] = dcline["MDC"] == 0 ? false : true
+            sub_data["available"] = dcline["MDC"] != 0
             sub_data["br_status"] = sub_data["available"]
 
             sub_data["scheduled_dc_voltage"] = dcline["VSCHD"]
@@ -1993,12 +2078,12 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 else
                     1
                 end
-            sub_data["available"] = sub_data["br_status"] == 0 ? false : true
+            sub_data["available"] = sub_data["br_status"] != 0
 
-            sub_data["dc_voltage_control_from"] = from_bus["TYPE"] == 1 ? true : false
-            sub_data["dc_voltage_control_to"] = to_bus["TYPE"] == 1 ? true : false
-            sub_data["ac_voltage_control_from"] = from_bus["MODE"] == 1 ? true : false
-            sub_data["ac_voltage_control_to"] = to_bus["MODE"] == 1 ? true : false
+            sub_data["dc_voltage_control_from"] = from_bus["TYPE"] == 1
+            sub_data["dc_voltage_control_to"] = to_bus["TYPE"] == 1
+            sub_data["ac_voltage_control_from"] = from_bus["MODE"] == 1
+            sub_data["ac_voltage_control_to"] = to_bus["MODE"] == 1
 
             if sub_data["dc_voltage_control_from"] && !sub_data["dc_voltage_control_to"]
                 base_voltage = from_bus["DCSET"]
@@ -2121,10 +2206,8 @@ function _psse2pm_facts!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     pm_data["facts"] = []
 
     if haskey(pti_data, "FACTS CONTROL DEVICE")
+        @info "FACTS devices are parsed as their shunt (STATCOM) half only; a series terminal is dropped"
         for facts in pti_data["FACTS CONTROL DEVICE"]
-            @info(
-                """FACTs are supported via a simplification approach for terminal_bus = 0 (STATCOM operation)"""
-            )
             sub_data = Dict{String, Any}()
 
             sub_data["name"] = if pm_data["source_version"] == "30"
@@ -2257,6 +2340,11 @@ function _psse2pm_switch_breaker!(pm_data::Dict, pti_data::Dict, import_all::Boo
             # Check if character is in the mapping
             if haskey(mapping, branch_init)
                 branch_type, discrete_branch_type = mapping[branch_init]
+
+                # Before the builder pops "I"/"J": a BRANCH row routed here is a
+                # switching device, which has no line shunt, so any GI/BI/GJ/BJ it
+                # carries has to be relocated rather than dropped.
+                _switching_device_line_shunts!(pm_data, branch, nb)
 
                 sub_data = _build_switch_breaker_sub_data(
                     pm_data,
@@ -2598,26 +2686,26 @@ function _pti_to_powermodels!(
         convert_to_pv = pm_data["candidate_isolated_to_pv_buses"]
 
         for b in setdiff!(convert_to_pq, topologically_isolated_buses)
-            pm_data["bus"][b]["bus_type"] = 1
+            pm_data["bus"][b]["bus_type"] = PM_BUS_TYPE_PQ
         end
         for b in setdiff!(convert_to_pv, topologically_isolated_buses)
-            pm_data["bus"][b]["bus_type"] = 2
+            pm_data["bus"][b]["bus_type"] = PM_BUS_TYPE_PV
         end
 
         if !isempty(topologically_isolated_buses)
             for b in topologically_isolated_buses
-                if pm_data["bus"][b]["bus_type"] == 4
+                if pm_data["bus"][b]["bus_type"] == PM_BUS_TYPE_ISOLATED
                     continue
                 else
                     b_number = pm_data["bus"][b]["bus_i"]
                     b_type = pm_data["bus"][b]["bus_type"]
-                    if b_type == 3
+                    if b_type == PM_BUS_TYPE_REF
                         error(
                             "PSEE reference bus $(b_number) that is topologically isolated from the system. Indicates an error in the data.",
                         )
                     end
                     @error "PSEE data file contains a topologically isolated bus $(b_number) that is disconnected from the system and set to bus_type = $(b_type) instead of 4. Likely indicates an error in the data."
-                    pm_data["bus"][b]["bus_type"] = 4
+                    pm_data["bus"][b]["bus_type"] = PM_BUS_TYPE_ISOLATED
                     pm_data["bus"][b]["bus_status"] = false
                 end
             end

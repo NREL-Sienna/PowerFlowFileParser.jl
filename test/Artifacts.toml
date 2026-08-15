@@ -1,0 +1,10 @@
+# Sienna test fixtures: matpower, psse_raw and bad_data_for_tests. Previously
+# reached through PowerSystemCaseBuilder.DATA_DIR; pinned here so this package
+# does not depend on PowerSystemCaseBuilder.
+[CaseData]
+git-tree-sha1 = "4cd1346c95c4e092e5268cc2db400c3967cee876"
+lazy = true
+
+    [[CaseData.download]]
+    url = "https://github.com/Sienna-Platform/PowerSystemsTestData/archive/refs/tags/5.0-dev4.tar.gz"
+    sha256 = "b342a73b81013f81fd743dd243ad260bc17a5880aabae6c131a1ac593e5b382f"

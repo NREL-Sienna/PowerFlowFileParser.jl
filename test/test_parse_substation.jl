@@ -1251,3 +1251,32 @@ end
     @test length(pm_data["bus"]) == 3
     @test isempty(pm_data["switch"])
 end
+
+@testset "switching device declaring a line shunt" begin
+    # A BRANCH row with a '@' or '*' CKT is a breaker or switch, and the RAW
+    # System Switching Device record has no GI/BI/GJ/BJ columns at all -- such a
+    # row is malformed input. The admittance is relocated to the bus at the end
+    # it was declared on rather than dropped or hung off the switching device.
+    file = joinpath(PSSE_RAW_DIR, "psse_v35_switching_device_line_shunt.raw")
+    pm_data = PowerModelsData(file).data
+
+    @test length(pm_data["breaker"]) == 1
+    @test length(pm_data["branch"]) == 2
+
+    shunts = collect(values(pm_data["shunt"]))
+    # Only the I end carried non-zero values; the all-zero J end adds nothing.
+    @test length(shunts) == 1
+    salvaged = only(shunts)
+    @test salvaged["shunt_bus"] == 1
+    @test salvaged["gs"] == 0.001
+    @test salvaged["bs"] == -0.025
+    @test salvaged["status"] == 1
+    @test salvaged["source_id"] == ["branch shunt", 1, 3, "@1", "I"]
+
+    # The relocation must be announced, not silent.
+    @test_logs(
+        (:warn, r"declares a line-connected shunt at its I end"),
+        match_mode = :any,
+        PowerModelsData(file)
+    )
+end

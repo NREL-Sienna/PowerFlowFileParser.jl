@@ -1,10 +1,13 @@
 using Test
 using Logging
-import PowerSystemCaseBuilder as PSB
+import LazyArtifacts
 import InfrastructureSystems as IS
 import InfrastructureSystems: DataFormatError
 
 using PowerFlowFileParser
+const PFP = PowerFlowFileParser
+import JSON
+import OpenAPI
 
 import Aqua
 Aqua.test_unbound_args(PowerFlowFileParser)
@@ -13,7 +16,8 @@ Aqua.test_ambiguities(PowerFlowFileParser)
 Aqua.test_stale_deps(PowerFlowFileParser)
 Aqua.test_deps_compat(PowerFlowFileParser)
 
-const DATA_DIR = PSB.DATA_DIR
+const DATA_DIR =
+    joinpath(LazyArtifacts.artifact"CaseData", "PowerSystemsTestData-5.0-dev4")
 const MATPOWER_DIR = joinpath(DATA_DIR, "matpower")
 const PSSE_RAW_DIR = joinpath(DATA_DIR, "psse_raw")
 const BAD_DATA = joinpath(DATA_DIR, "bad_data_for_tests")
@@ -27,6 +31,16 @@ text are not: a Windows checkout rewrites these LF fixtures to CRLF, and a patte
 a line boundary then fails to match, silently leaving the text unmodified.
 """
 read_fixture(path::AbstractString) = replace(read(path, String), "\r\n" => "\n")
+
+const FOURTEEN_BUS_FIXTURE = joinpath(@__DIR__, "modified_14bus_system.raw")
+
+fourteen_bus_pm_data() = PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE)
+
+"""Compound OpenAPI values (`MinMax`, `FromTo`, `ComplexNumber`, ...) are generated
+structs, not `NamedTuple`s — compare them to a `NamedTuple` field-by-field rather than
+via `==`, which would always be `false` across the two types."""
+_matches_nt(value, nt::NamedTuple) =
+    all(getproperty(value, k) == v for (k, v) in pairs(nt))
 
 LOG_FILE = "power-flow-parser.log"
 LOG_LEVELS = Dict(
