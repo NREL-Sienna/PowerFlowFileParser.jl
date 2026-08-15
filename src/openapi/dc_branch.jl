@@ -1,7 +1,3 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl:1723-1902
-# (make_dcline, read_dcline!, _psse_remote_bus, make_vscline, read_vscline!) and the
-# `interarea_transfer`/`AreaInterchange` block inside `read_bus!` (:481-529).
-#
 # `data["dcline"]` IS a native PowerModels section — `_make_per_unit!` divides its power
 # fields (`pf`/`qf`/`p*f`/`q*f`/`p*t`/`q*t`) by `baseMVA`. The LCC-specific fields (`r`,
 # `transfer_setpoint`, `scheduled_dc_voltage`, `rectifier_*`, `inverter_*`, and the rest
@@ -14,8 +10,7 @@
 # `data["vscline"]` and `data["interarea_transfer"]` are NOT native PowerModels sections;
 # see the per-maker docstrings below for how PFFP's own `psse.jl` pre-scales their fields.
 
-"""Two-terminal LCC HVDC line (PSS/E). Ported from PSCB's `make_dcline`'s `"pti"` branch
-(:1723-1765)."""
+"""Two-terminal LCC HVDC line (PSS/E)."""
 function make_lcc_line!(
     sys::OpenAPISystem,
     reg::IdRegistry,
@@ -95,8 +90,7 @@ function make_lcc_line!(
     return
 end
 
-"""Two-terminal generic HVDC line (MATPOWER). Ported from PSCB's `make_dcline`'s
-`"matpower"` branch (:1766-1777)."""
+"""Two-terminal generic HVDC line (MATPOWER)."""
 function make_generic_hvdc_line!(
     sys::OpenAPISystem,
     reg::IdRegistry,
@@ -316,7 +310,7 @@ end
 
 """PSS/E encodes "no remote regulated bus" as `REMOT = 0`; the schema's
 `remote_bus_control_*` is nullable with a valid range `>= 1` and spells local-terminal-bus
-regulation as `nothing`. Ported from PSCB's `_psse_remote_bus`."""
+regulation as `nothing`."""
 function _psse_remote_bus(d::Dict, key::AbstractString)
     remote_bus = get(get(d, "ext", Dict()), key, 0)
     if iszero(remote_bus)
@@ -327,7 +321,6 @@ end
 
 """
 Create one `TwoTerminalLCCLine`/`TwoTerminalGenericHVDCLine` per `data["dcline"]` entry.
-Ported from PSCB's `read_dcline!` (:1783-1806).
 """
 function read_dc_lines!(sys::OpenAPISystem, data::Dict; kwargs...)
     if !haskey(data, "dcline")

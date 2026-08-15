@@ -1,6 +1,3 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl:209-330
-# (_impedance_correction_table_lookup, _attach_single_ict!, _attach_impedance_correction_tables!).
-#
 # ImpedanceCorrectionData is a supplemental attribute, not a component: it describes one
 # (table, winding) pair and links to whichever TwoWindingTransformer/ThreeWindingTransformer
 # references that table via its own `correction_table`/`primary_correction_table`/

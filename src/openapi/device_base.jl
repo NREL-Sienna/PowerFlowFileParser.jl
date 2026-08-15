@@ -35,13 +35,14 @@
 #     readers today) are schema-fixed-natural: always MW/MVAr, multiplied by the SYSTEM
 #     base in BOTH of PowerSystems' export methods — not document-unit-system-governed at
 #     all. `_DEVICEBASE_FIXED_NATURAL` lists them explicitly.
-#   - `FACTSControlDevice` has no `base_power` field of its own; its one plain
-#     power-family field (`max_shunt_current`) falls back to the document's system base,
-#     the same fallback PowerSystems' own reserve/`TwoTerminalGenericHVDCLine` converters
-#     use for a type with no per-device base. `_DEVICEBASE_SYSTEM_BASE_TYPES` lists the
-#     document keys that need this fallback (only `FACTSControlDevice` is reachable from
-#     this package's readers today; the reserve types are listed defensively in case a
-#     future reader adds them).
+#   - `FACTSControlDevice`'s `base_power` records the SYSTEM base, not a device base — the
+#     schema's deliberate exception ("in lieu of a system-level table"), same as `Line`. So
+#     its one plain power-family field (`max_shunt_current`) scales by the document's system
+#     base, the same fallback PowerSystems' own reserve/`TwoTerminalGenericHVDCLine`
+#     converters use for a type with no per-device base; both paths yield the same number
+#     here. `_DEVICEBASE_SYSTEM_BASE_TYPES` lists the document keys that take this route
+#     (only `FACTSControlDevice` is reachable from this package's readers today; the reserve
+#     types are listed defensively in case a future reader adds them).
 #
 # ── Field classification, instance-dispatched path ──────────────────────────────
 #

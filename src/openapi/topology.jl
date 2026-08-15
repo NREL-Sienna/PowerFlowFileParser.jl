@@ -1,6 +1,3 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl (read_bus!,
-# read_loadzones!, and the Arc id path the branch/dc_branch/transformer_3w readers share).
-#
 # `PowerModelsData(file)` defaults `pm_data_corrections = true`, which runs PowerModels'
 # `_make_per_unit!`: every power quantity in `data` (including load pd/qd) arrives as
 # system per-unit on `baseMVA`, not natural units. The schemas' ActivePower/

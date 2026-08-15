@@ -1,13 +1,10 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl:1904-2036
-# (make_switched_shunt, read_switched_shunt!, make_shunt, make_facts, read_facts!,
-# read_shunt!). None of `"shunt"`/`"switched_shunt"`/`"facts"` are native PowerModels
+# None of `"shunt"`/`"switched_shunt"`/`"facts"` are native PowerModels
 # sections, so `_make_per_unit!` never touches them; every field PFFP's own psse.jl
 # parser writes is used exactly as written (either PSS/E-native per-unit-at-unity-voltage,
 # `ShuntAdmittanceUnitBasis.DEVICE_MVAR`, for shunt admittances, or a plain natural value
 # for everything else) — no `sys_mbase` scaling anywhere in this file.
 
-"""Fixed admittance (PSS/E `FIXED SHUNT`). Ported from PSCB's `make_shunt`
-(:1959-1966)."""
+"""Fixed admittance (PSS/E `FIXED SHUNT`)."""
 function make_fixed_admittance!(
     sys::OpenAPISystem,
     reg::IdRegistry,
@@ -20,6 +17,7 @@ function make_fixed_admittance!(
     set_value!(component, :name, name)
     set_value!(component, :available, Bool(d["status"]))
     set_value!(component, :bus, bus_id)
+    set_value!(component, :base_power, get_base_power(sys), "MVA")
     set_value!(component, :admittance_units, "DEVICE_MVAR")
     set_value!(component, :Y, (real = d["gs"], imag = d["bs"]), "MVAr")
     add_component!(sys, component)
@@ -70,8 +68,7 @@ function _set_y_increase!(
 end
 
 """
-Switched admittance (PSS/E `SWITCHED SHUNT`). Ported from PSCB's `make_switched_shunt`
-(:1904-1933).
+Switched admittance (PSS/E `SWITCHED SHUNT`).
 
 `admittance_limits` mirrors PSCB's own field verbatim: PSS/E's `VSWLO`/`VSWHI` are a
 controlled-voltage band, not an admittance band, despite the oracle's field name — a
@@ -127,7 +124,7 @@ function _facts_control_mode(code::Integer)
     return FACTS_CONTROL_MODE_NAMES[code]
 end
 
-"""FACTS control device. Ported from PSCB's `make_facts` (:1968-1987). Series FACTS
+"""FACTS control device. Series FACTS
 (`tbus != 0`) are unsupported and only warned about, matching the oracle; this reader
 still emits the STATCOM-simplified device."""
 function make_facts!(
@@ -147,6 +144,7 @@ function make_facts!(
     set_value!(component, :name, name)
     set_value!(component, :available, Bool(d["available"]))
     set_value!(component, :bus, bus_id)
+    set_value!(component, :base_power, get_base_power(sys), "MVA")
     set_value!(component, :control_mode, control_mode)
     set_value!(component, :voltage_setpoint_units, "DEVICE_BASE")
     set_value!(component, :voltage_setpoint, d["voltage_setpoint"], "pu")

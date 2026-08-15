@@ -1,6 +1,5 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl:1349-1388
-# (make_switch_breaker, read_switch_breaker!, called once per device type there and
-# folded into one reader here since all three pm sections share an identical row shape).
+# "switch"/"breaker"/"generic_connector" share an identical row shape, so one reader
+# covers all three.
 #
 # None of "switch"/"breaker"/"generic_connector" are native PowerModels sections —
 # `_psse2pm_switch_breaker!` (`pm_io/psse.jl`) writes their fields directly from PSS/E
@@ -85,8 +84,7 @@ end
 
 """
 Create one `DiscreteControlledACBranch` per `data["switch"]`/`data["breaker"]`/
-`data["generic_connector"]` entry. Ported from PSCB's `read_switch_breaker!`
-(:1365-1388).
+`data["generic_connector"]` entry.
 """
 function read_switch_breaker!(sys::OpenAPISystem, data::Dict; kwargs...)
     reg = get_registry(sys)

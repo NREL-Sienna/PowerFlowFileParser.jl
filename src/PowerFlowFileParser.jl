@@ -17,7 +17,6 @@ export build_openapi_system
 import LinearAlgebra
 import DataStructures: SortedDict
 import Unicode: normalize
-import YAML
 import JSON
 import OpenAPI
 import PowerCoreOpenAPIModels
