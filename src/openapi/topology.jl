@@ -11,12 +11,9 @@
 # parsing (`src/pm_io/data.jl`), so no conversion runs here either. `base_kv` itself is
 # a natural quantity PowerModels never rebases.
 
-"""PowerModels `bus_type` codes 1-4, in the schema's `ACBus.bustype` spelling.
-
-PowerModels never emits code 5; the schema's fifth option, `"SLACK"`, is reached only
-through the `area_slack` override below, matching the oracle's `set_bustype!` call.
-"""
-const PM_BUS_TYPE_NAMES = ("PQ", "PV", "REF", "ISOLATED")
+# `PM_BUS_TYPE_NAMES` (definitions.jl) spells codes 1-4 the way `ACBus.bustype` does.
+# PowerModels never emits code 5; the schema's fifth option, `"SLACK"`, is reached only
+# through the `area_slack` override below, matching the oracle's `set_bustype!` call.
 
 function _bustype_name(code::Integer)
     if !(1 <= code <= length(PM_BUS_TYPE_NAMES))

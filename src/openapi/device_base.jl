@@ -35,14 +35,15 @@
 #     readers today) are schema-fixed-natural: always MW/MVAr, multiplied by the SYSTEM
 #     base in BOTH of PowerSystems' export methods — not document-unit-system-governed at
 #     all. `_DEVICEBASE_FIXED_NATURAL` lists them explicitly.
-#   - `FACTSControlDevice`'s `base_power` records the SYSTEM base, not a device base — the
-#     schema's deliberate exception ("in lieu of a system-level table"), same as `Line`. So
-#     its one plain power-family field (`max_shunt_current`) scales by the document's system
-#     base, the same fallback PowerSystems' own reserve/`TwoTerminalGenericHVDCLine`
-#     converters use for a type with no per-device base; both paths yield the same number
-#     here. `_DEVICEBASE_SYSTEM_BASE_TYPES` lists the document keys that take this route
-#     (only `FACTSControlDevice` is reachable from this package's readers today; the reserve
-#     types are listed defensively in case a future reader adds them).
+#   - A type with no `base_power` field of its own has no anchor to read, so its power
+#     fields scale by the document's system base — the same fallback PowerSystems' own
+#     reserve/`TwoTerminalGenericHVDCLine` converters use. `_DEVICEBASE_SYSTEM_BASE_TYPES`
+#     names them. None is reachable from this package's readers today; they are listed
+#     defensively in case a future reader adds them. Types whose `base_power` records the
+#     SYSTEM base rather than a device base (`Line`, `FixedAdmittance`,
+#     `FACTSControlDevice`, ... — the schema's "in lieu of a system-level table" exception)
+#     do NOT belong here: the generic path reads that field and reaches the same number
+#     from the document instead of asserting it from a name list.
 #
 # ── Field classification, instance-dispatched path ──────────────────────────────
 #
@@ -90,7 +91,7 @@ const _DEVICEBASE_FIXED_NATURAL = Set{Tuple{String, Symbol}}([
 ])
 
 const _DEVICEBASE_SYSTEM_BASE_TYPES =
-    Set(["FACTSControlDevice", "OnlineReserve", "OfflineReserve", "GroupReserve"])
+    Set(["OnlineReserve", "OfflineReserve", "GroupReserve"])
 
 const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
     # parameter_units/admittance_units/voltage_setpoint_units always "DEVICE_BASE"

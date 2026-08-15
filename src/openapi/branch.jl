@@ -95,7 +95,6 @@ function _get_pm_branch_name(
     return "$bus_f_name-$bus_t_name-i_$index"
 end
 
-""""""
 function _get_pm_3w_name(
     d::Dict,
     bus_primary_name::AbstractString,
@@ -366,7 +365,6 @@ function make_switch_from_zero_impedance_branch!(
     return
 end
 
-""""""
 function _branch_type_matpower(d::Dict)
     tap = d["tap"]
     shift = d["shift"]
@@ -380,7 +378,6 @@ function _branch_type_matpower(d::Dict)
     return :line
 end
 
-""""""
 function _branch_type_psse(d::Dict, name::AbstractString)
     if iszero(d["br_r"]) && iszero(d["br_x"])
         return :switch

@@ -30,17 +30,15 @@ const _pti_sections = [
     "INDUCTION MACHINE",
 ]
 
-"""
-v35 adds SWITCHING DEVICE directly after BRANCH, and SUBSTATION DATA at the end. Both
-positions are derived from the section they follow rather than written as indices, so
-inserting into [`_pti_sections`](@ref) cannot silently move them.
-"""
-const _pti_sections_v35 = vcat(
-    _pti_sections[1:findfirst(==("BRANCH"), _pti_sections)],
-    ["SWITCHING DEVICE"],
-    _pti_sections[(findfirst(==("BRANCH"), _pti_sections) + 1):end],
-    "SUBSTATION DATA",
-)
+"""v35 adds SWITCHING DEVICE directly after BRANCH, and SUBSTATION DATA at the end."""
+const _pti_sections_v35 = let branch = findfirst(==("BRANCH"), _pti_sections)
+    vcat(
+        _pti_sections[1:branch],
+        "SWITCHING DEVICE",
+        _pti_sections[(branch + 1):end],
+        "SUBSTATION DATA",
+    )
+end
 
 """
 Section order for PSS(R)E v29/v30 raw files. v30 has no FIXED SHUNT section, and

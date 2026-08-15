@@ -7,7 +7,7 @@ specification.
 """
 function _init_bus!(bus::Dict{String, Any}, id::Int)
     bus["bus_i"] = id
-    bus["bus_type"] = 1
+    bus["bus_type"] = PM_BUS_TYPE_PQ
     bus["area"] = 1
     bus["vm"] = 1.0
     bus["va"] = 0.0
@@ -828,6 +828,15 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
 end
 
 """
+Whether `key` names one of a SWITCHED SHUNT record's up-to-eight admittance-block columns
+for `prefix` — `N1`..`N8` (step counts) or `B1`..`B8` (admittances). Exact, so a future
+column merely starting with the same letter is not swept in.
+"""
+function _is_switched_shunt_block(key::AbstractString, prefix::Char)
+    return ncodeunits(key) == 2 && key[1] == prefix && '1' <= key[2] <= '8'
+end
+
+"""
     _psse2pm_shunt!(pm_data, pti_data)
 
 Parses PSS(R)E-style Fixed and Switched Shunt data into a PowerModels-style
@@ -899,11 +908,9 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
             sub_data["admittance_limits"] =
                 (pop!(switched_shunt, "VSWLO"), pop!(switched_shunt, "VSWHI"))
 
-            # N1..N8: the step count of each of the record's up-to-eight admittance
-            # blocks. Matched exactly rather than by "starts with N", which would also
-            # take any future column whose name happens to begin with N.
+            # N1..N8 hold the step count of each admittance block, B1..B8 its admittance.
             step_numbers = Dict(
-                k => v for (k, v) in switched_shunt if occursin(r"^N[1-8]$", k)
+                k => v for (k, v) in switched_shunt if _is_switched_shunt_block(k, 'N')
             )
             step_numbers_sorted =
                 sort(collect(keys(step_numbers)); by = x -> parse(Int, x[2:end]))
@@ -923,7 +930,7 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
 
             y_increment = Dict(
                 k => v for
-                (k, v) in switched_shunt if startswith(k, "B") && isdigit(last(k))
+                (k, v) in switched_shunt if _is_switched_shunt_block(k, 'B')
             )
             y_increment_sorted =
                 sort(collect(keys(y_increment)); by = x -> parse(Int, x[2:end]))
@@ -976,11 +983,8 @@ function apply_tap_correction!(
     cw_value::Int64,
     winding_name::String,
 )
-    # Snap the tap to a step only where the record actually defines a tap ladder:
-    # |COD| 1 (voltage control) or 2 (reactive power control) — 3/4/5 are phase-shift,
-    # DC-line and asymmetric control, whose RMI/RMA bracket an angle or a flow, not a
-    # turns ratio — and any of the three CW winding-unit codes, all of which state WINDV
-    # on a scale NTP steps divide evenly.
+    # Only |COD| 1/2 define a tap ladder; 3/4/5 are phase-shift, DC-line and asymmetric
+    # control, whose RMI/RMA bracket an angle or a flow rather than a turns ratio.
     if abs(transformer[cod_key]) ∈ (1, 2) && cw_value ∈ (1, 2, 3)
         tap_positions = collect(
             range(
@@ -1038,21 +1042,21 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool, 
     if haskey(pti_data, "TRANSFORMER")
         starbus_id = 10^ceil(Int, log10(abs(_find_max_bus_id(pm_data)))) + 1
         for transformer in pti_data["TRANSFORMER"]
-            if !(transformer["CZ"] in [1, 2, 3])
+            if !(transformer["CZ"] in (1, 2, 3))
                 @warn(
                     "transformer CZ value outside of valid bounds assuming the default value of 1.  Given $(transformer["CZ"]), should be 1, 2 or 3",
                 )
                 transformer["CZ"] = 1
             end
 
-            if !(transformer["CW"] in [1, 2, 3])
+            if !(transformer["CW"] in (1, 2, 3))
                 @warn(
                     "transformer CW value outside of valid bounds assuming the default value of 1.  Given $(transformer["CW"]), should be 1, 2 or 3",
                 )
                 transformer["CW"] = 1
             end
 
-            if !(transformer["CM"] in [1, 2])
+            if !(transformer["CM"] in (1, 2))
                 @warn(
                     "transformer CM value outside of valid bounds assuming the default value of 1.  Given $(transformer["CM"]), should be 1 or 2",
                 )
@@ -2202,11 +2206,7 @@ function _psse2pm_facts!(pm_data::Dict, pti_data::Dict, import_all::Bool)
     pm_data["facts"] = []
 
     if haskey(pti_data, "FACTS CONTROL DEVICE")
-        # Only the shunt half of a FACTS device is represented: a record with no series
-        # terminal (J = 0) is a STATCOM and parses exactly; one with a series terminal is
-        # read as though it had none, so its series branch is dropped. `make_facts!` warns
-        # per device for that case.
-        @info "FACTS devices are parsed as their shunt (STATCOM) half only"
+        @info "FACTS devices are parsed as their shunt (STATCOM) half only; a series terminal is dropped"
         for facts in pti_data["FACTS CONTROL DEVICE"]
             sub_data = Dict{String, Any}()
 
@@ -2686,10 +2686,10 @@ function _pti_to_powermodels!(
         convert_to_pv = pm_data["candidate_isolated_to_pv_buses"]
 
         for b in setdiff!(convert_to_pq, topologically_isolated_buses)
-            pm_data["bus"][b]["bus_type"] = 1
+            pm_data["bus"][b]["bus_type"] = PM_BUS_TYPE_PQ
         end
         for b in setdiff!(convert_to_pv, topologically_isolated_buses)
-            pm_data["bus"][b]["bus_type"] = 2
+            pm_data["bus"][b]["bus_type"] = PM_BUS_TYPE_PV
         end
 
         if !isempty(topologically_isolated_buses)
@@ -2699,13 +2699,13 @@ function _pti_to_powermodels!(
                 else
                     b_number = pm_data["bus"][b]["bus_i"]
                     b_type = pm_data["bus"][b]["bus_type"]
-                    if b_type == 3
+                    if b_type == PM_BUS_TYPE_REF
                         error(
                             "PSEE reference bus $(b_number) that is topologically isolated from the system. Indicates an error in the data.",
                         )
                     end
                     @error "PSEE data file contains a topologically isolated bus $(b_number) that is disconnected from the system and set to bus_type = $(b_type) instead of 4. Likely indicates an error in the data."
-                    pm_data["bus"][b]["bus_type"] = 4
+                    pm_data["bus"][b]["bus_type"] = PM_BUS_TYPE_ISOLATED
                     pm_data["bus"][b]["bus_status"] = false
                 end
             end

@@ -98,7 +98,6 @@ function build_openapi_system(
     read_switch_breaker!(sys, data; kwargs...)
     read_dc_branches!(sys, data; kwargs...)
     read_shunts!(sys, data; kwargs...)
-    read_substations!(sys, data; kwargs...)
     read_attributes!(sys, data; kwargs...)
     apply_device_base_conversion!(sys)
 

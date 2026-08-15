@@ -103,6 +103,30 @@ function add_supplemental_attribute!(
 end
 
 """
+Describe `entity_id` with an attribute [`add_supplemental_attribute!`](@ref) already
+recorded — one attribute shared across several entities takes one row per extra entity.
+
+`attribute_type` is derived from the attribute rather than passed in, matching what
+`add_supplemental_attribute!` writes for the first entity; a literal would let the two
+disagree.
+"""
+function add_supplemental_attribute_association!(
+    sys::OpenAPISystem,
+    attribute::OpenAPI.APIModel,
+    entity_id::Int,
+)
+    push!(
+        get_document(sys).supplemental_attribute_associations,
+        PC.SupplementalAttributeAssociation(;
+            attribute_id = get_value(attribute, :id),
+            entity_id = entity_id,
+            attribute_type = string(nameof(typeof(attribute))),
+        ),
+    )
+    return
+end
+
+"""
 Record that `entity_id` contributes to the service `service_id`.
 
 A membership is a row in the dedicated `service_associations` table: `entity_id` may name
