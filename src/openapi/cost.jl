@@ -9,10 +9,14 @@ has no cost data to read from a PowerModels dict."""
 function _zero_cost_curve()
     return PC.CostCurve(;
         power_units = "NATURAL_UNITS",
-        value_curve = PC.InputOutputCurve(;
-            function_data = PC.LinearFunctionData(;
-                proportional_term = 0.0,
-                constant_term = 0.0,
+        value_curve = PC.ValueCurve(
+            PC.InputOutputCurve(;
+                function_data = PC.InputOutputCurveFunctionData(
+                    PC.LinearFunctionData(;
+                        proportional_term = 0.0,
+                        constant_term = 0.0,
+                    ),
+                ),
             ),
         ),
     )
@@ -100,7 +104,11 @@ function make_thermal_cost(gen_name::AbstractString, pm_gen::Dict, sys_mbase::Fl
     return PC.ThermalGenerationCost(;
         variable = PC.CostCurve(;
             power_units = "DEVICE_BASE",
-            value_curve = PC.InputOutputCurve(; function_data = function_data),
+            value_curve = PC.ValueCurve(
+                PC.InputOutputCurve(;
+                    function_data = PC.InputOutputCurveFunctionData(function_data),
+                ),
+            ),
         ),
         fixed = fixed,
         start_up = pm_gen["startup"],

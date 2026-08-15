@@ -123,7 +123,7 @@ end
         @test cost.shut_down == 0.0
         variable = cost.variable
         @test variable.power_units == "DEVICE_BASE"
-        function_data = variable.value_curve.function_data
+        function_data = variable.value_curve.value.function_data.value
         @test function_data.quadratic_term == 0.0
         @test function_data.proportional_term == 1.0
         @test function_data.constant_term == 0.0
@@ -143,7 +143,7 @@ end
         c1, c0 = d["cost"]
         expected_proportional = c1 / sys_mbase
         cost = PFP.get_value(gen, :operation_cost).value
-        fd = cost.variable.value_curve.function_data
+        fd = cost.variable.value_curve.value.function_data.value
         @test fd.proportional_term ≈ expected_proportional
         @test fd.constant_term == 0.0
         @test cost.fixed == 0.0
@@ -169,7 +169,7 @@ end
 
         cost = PFP.get_value(gen, :operation_cost).value
         @test cost.fixed ≈ fixed
-        fd = cost.variable.value_curve.function_data
+        fd = cost.variable.value_curve.value.function_data.value
         @test fd.function_type == "PIECEWISE_LINEAR"
         @test length(fd.points) == length(points)
         for (p, (x, y)) in zip(fd.points, points)
@@ -193,7 +193,7 @@ end
     @test cost.start_up == 0.0
     @test cost.shut_down == 0.0
     @test cost.variable.power_units == "NATURAL_UNITS"
-    fd = cost.variable.value_curve.function_data
+    fd = cost.variable.value_curve.value.function_data.value
     @test fd.function_type == "LINEAR"
     @test fd.proportional_term == 0.0
     @test fd.constant_term == 0.0

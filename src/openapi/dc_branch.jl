@@ -77,10 +77,14 @@ function make_lcc_line!(
     set_value!(
         component,
         :loss,
-        PC.InputOutputCurve(;
-            function_data = PC.LinearFunctionData(;
-                proportional_term = d["loss1"],
-                constant_term = d["loss0"],
+        PC.TwoTerminalLoss(
+            PC.InputOutputCurve(;
+                function_data = PC.InputOutputCurveFunctionData(
+                    PC.LinearFunctionData(;
+                        proportional_term = d["loss1"],
+                        constant_term = d["loss0"],
+                    ),
+                ),
             ),
         ),
     )
@@ -118,10 +122,14 @@ function make_generic_hvdc_line!(
     set_value!(
         component,
         :loss,
-        PC.InputOutputCurve(;
-            function_data = PC.LinearFunctionData(;
-                proportional_term = d["loss1"],
-                constant_term = d["loss0"],
+        PC.TwoTerminalLoss(
+            PC.InputOutputCurve(;
+                function_data = PC.InputOutputCurveFunctionData(
+                    PC.LinearFunctionData(;
+                        proportional_term = d["loss1"],
+                        constant_term = d["loss0"],
+                    ),
+                ),
             ),
         ),
     )
@@ -255,9 +263,11 @@ function make_vscline!(
         component,
         :converter_loss_from,
         PC.InputOutputCurve(;
-            function_data = PC.LinearFunctionData(;
-                proportional_term = IS.get_proportional_term(d["converter_loss_from"]),
-                constant_term = IS.get_constant_term(d["converter_loss_from"]),
+            function_data = PC.InputOutputCurveFunctionData(
+                PC.LinearFunctionData(;
+                    proportional_term = IS.get_proportional_term(d["converter_loss_from"]),
+                    constant_term = IS.get_constant_term(d["converter_loss_from"]),
+                ),
             ),
         ),
     )
@@ -288,9 +298,11 @@ function make_vscline!(
         component,
         :converter_loss_to,
         PC.InputOutputCurve(;
-            function_data = PC.LinearFunctionData(;
-                proportional_term = IS.get_proportional_term(d["converter_loss_to"]),
-                constant_term = IS.get_constant_term(d["converter_loss_to"]),
+            function_data = PC.InputOutputCurveFunctionData(
+                PC.LinearFunctionData(;
+                    proportional_term = IS.get_proportional_term(d["converter_loss_to"]),
+                    constant_term = IS.get_constant_term(d["converter_loss_to"]),
+                ),
             ),
         ),
     )
