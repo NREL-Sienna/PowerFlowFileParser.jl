@@ -15,7 +15,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
         with:
-          version: '1.10'
+          # `[sources]` is honored from 1.11 on; on 1.10 the docs env silently ignores the
+          # OpenAPI pins and tries the registry. Every other workflow already tracks '1'.
+          version: '1'
       - name: Install dependencies
         run: julia --project=docs/ -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
       - name: Build and deploy
