@@ -525,6 +525,8 @@ function _index_generator_mapping(table)
     return mappings
 end
 
+"""`(fuel, unit_type) => generator class name`, the lookup [`get_generator_type`](@ref)
+resolves against."""
 const GENERATOR_MAPPING_PM = _index_generator_mapping(GENERATOR_MAPPING_ENTRIES_PM)
 
 """
