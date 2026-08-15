@@ -30,10 +30,15 @@ const _pti_sections = [
     "INDUCTION MACHINE",
 ]
 
+"""
+v35 adds SWITCHING DEVICE directly after BRANCH, and SUBSTATION DATA at the end. Both
+positions are derived from the section they follow rather than written as indices, so
+inserting into [`_pti_sections`](@ref) cannot silently move them.
+"""
 const _pti_sections_v35 = vcat(
-    _pti_sections[1:6],
+    _pti_sections[1:findfirst(==("BRANCH"), _pti_sections)],
     ["SWITCHING DEVICE"],
-    _pti_sections[7:end],
+    _pti_sections[(findfirst(==("BRANCH"), _pti_sections) + 1):end],
     "SUBSTATION DATA",
 )
 
