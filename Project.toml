@@ -15,10 +15,10 @@ PowerOperationsOpenAPIModels = "a372b6d7-45a2-44c2-8199-6a724b72e8ff"
 Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 
 [sources]
-# Sibling-checkout paths, not a git rev: the x-unit accessors these packages
-# expose are generated and not yet released. Switch to a tagged rev before merge.
-PowerCoreOpenAPIModels = {path = "../PowerOpenAPIModels/PowerCoreOpenAPIModels.jl"}
-PowerOperationsOpenAPIModels = {path = "../PowerOpenAPIModels/PowerOperationsOpenAPIModels.jl"}
+# These packages are generated and not yet released, so they resolve from the branch
+# rather than the registry. Switch to a tagged rev once one exists.
+PowerCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/openapi_regen", subdir = "PowerCoreOpenAPIModels.jl"}
+PowerOperationsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/openapi_regen", subdir = "PowerOperationsOpenAPIModels.jl"}
 
 [compat]
 DataStructures = "0.19.3"
