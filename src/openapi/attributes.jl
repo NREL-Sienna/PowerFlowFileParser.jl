@@ -11,8 +11,10 @@
 # attribute id per pair, created lazily on first reference, with an extra
 # `SupplementalAttributeAssociation` row on every subsequent one.
 #
-# GeographicInfo (`data["substation"]`) is NOT read here — see
-# `KNOWN_UNCONSUMED_PM_SECTIONS` in build.jl.
+# `data["substation"]` becomes a `Substation` attribute, not the `GeographicInfo` PSCB
+# attaches: the schema's `Substation` carries the identity and grounding resistance, and
+# the RAW's latitude/longitude stay in the pm dict rather than being reshaped into geo
+# JSON no reader consumes.
 
 """
 One piecewise-linear curve and control-mode per impedance-correction table number.
@@ -117,6 +119,52 @@ function _attach_impedance_correction!(
         cache[key] =
             _new_impedance_correction_attribute!(sys, curves, table_number, winding,
                 transformer_id)
+    end
+    return
+end
+
+"""
+One `Substation` supplemental attribute per `data["substation"]` entry, associated with
+every bus its node list places inside the substation.
+
+PSS/E's SUBSTATION block is a node-breaker detail record — nodes, switching devices and
+terminals — but the schema's `Substation` keeps only the identity and grounding
+resistance a bus-branch model can act on. The node/device/terminal detail stays in the pm
+dict; `read_switch_breaker!` is what turns switching devices into components.
+
+A substation spanning several buses gets ONE attribute and an association per bus, the
+same sharing shape [`_attach_impedance_correction!`](@ref) uses.
+"""
+function read_substations!(sys::OpenAPISystem, data::Dict; kwargs...)
+    reg = get_registry(sys)
+    for (_, d) in _sorted_pm_entries(get(data, "substation", Dict{String, Any}()))
+        number = Int(d["number"])
+        nodes = get(d, "nodes", Dict{String, Any}[])
+        if isempty(nodes)
+            throw(
+                IS.DataFormatError(
+                    "substation $number has no nodes, so it attaches to no bus",
+                ),
+            )
+        end
+        bus_ids = unique(get_bus_id(reg, Int(node["bus"])) for node in nodes)
+
+        attribute = PO.Substation()
+        set_value!(attribute, :id, next_id!(reg))
+        set_value!(attribute, :name, string(d["name"]))
+        set_value!(attribute, :number, number)
+        set_value!(attribute, :grounding_resistance, d["grounding_resistance"], "ohm")
+        add_supplemental_attribute!(sys, attribute, first(bus_ids))
+        for bus_id in Iterators.drop(bus_ids, 1)
+            push!(
+                get_document(sys).supplemental_attribute_associations,
+                PC.SupplementalAttributeAssociation(;
+                    attribute_id = get_value(attribute, :id),
+                    entity_id = bus_id,
+                    attribute_type = "Substation",
+                ),
+            )
+        end
     end
     return
 end

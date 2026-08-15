@@ -11,7 +11,7 @@ const _CONSUMED_PM_SECTIONS = (
     "branch", "3w_transformer", "dcline", "vscline", "interarea_transfer",
     "shunt", "switched_shunt", "facts",
     "switch", "breaker", "generic_connector", "impedance_correction",
-    "area_interchange",
+    "area_interchange", "substation",
 )
 
 """
@@ -19,12 +19,6 @@ pm dict sections `build_openapi_system` deliberately does not read, each with th
 it is safe to ignore rather than a tracked gap. The only sanctioned form of silent skip.
 """
 const KNOWN_UNCONSUMED_PM_SECTIONS = Dict(
-    "substation" =>
-        "drives PSCB's own GeographicInfo bus attachment (`add_geographic_info_to_buses!`); " *
-        "reproducing it (including its node-breaker `ext[\"nb_substation\"]` fallback for " *
-        "split buses) needs `ext` threaded through `read_bus!` first, which this emit layer " *
-        "does not yet do — a real gap, deferred to a future attributes-stage sub-task, not a " *
-        "silent drop.",
     "areas" =>
         "MATPOWER's native `mpc.areas` table; PSCB's own `read_area!` for it is commented out " *
         "(\"not all matpower files define areas even when bus definitions contain area " *
@@ -104,6 +98,7 @@ function build_openapi_system(
     read_switch_breaker!(sys, data; kwargs...)
     read_dc_branches!(sys, data; kwargs...)
     read_shunts!(sys, data; kwargs...)
+    read_substations!(sys, data; kwargs...)
     read_attributes!(sys, data; kwargs...)
     apply_device_base_conversion!(sys)
 
