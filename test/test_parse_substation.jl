@@ -1135,7 +1135,7 @@ end
 end
 
 @testset "v35 substation switching device with unsupported TYPE warns and lands in generic_connector" begin
-    raw = read(V35_SUBSTATION_FIXTURE, String)
+    raw = read_fixture(V35_SUBSTATION_FIXTURE)
     unsupported = replace(
         raw,
         "     2,  3, '2 ','ALPHA\$138\$GC\$0003                       ',     1,     1,     1, 0.00010,   0.00,   0.00,   0.00\n" => "     2,  3, '2 ','ALPHA\$138\$GC\$0003                       ',     9,     1,     1, 0.00010,   0.00,   0.00,   0.00\n",
@@ -1157,7 +1157,7 @@ end
     # switch, one generic connector) materialize regardless, so the counts below are
     # that fixture's baseline; the point of this test is that the injected bad
     # system-level record adds nothing on top of it.
-    raw = read(V35_SUBSTATION_FIXTURE, String)
+    raw = read_fixture(V35_SUBSTATION_FIXTURE)
     unsupported = replace(
         raw,
         "0 / END OF BRANCH DATA, BEGIN SYSTEM SWITCHING DEVICE DATA\n0 / END OF SYSTEM SWITCHING DEVICE DATA, BEGIN TRANSFORMER DATA\n" => "0 / END OF BRANCH DATA, BEGIN SYSTEM SWITCHING DEVICE DATA\n     1,     2,'1 ', 0.00010, 100.00, 110.00, 120.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,   0.00,     1,     1,     1,     9,'SW_UNKNOWN                              '\n0 / END OF SYSTEM SWITCHING DEVICE DATA, BEGIN TRANSFORMER DATA\n",

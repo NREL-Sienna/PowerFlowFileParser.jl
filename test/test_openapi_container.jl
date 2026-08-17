@@ -77,8 +77,6 @@ end
     sys = PFP.OpenAPISystem(100.0)
     PFP.add_component!(sys, _bus(1, "Abel"))
     PFP.add_service_association!(sys, 99, 1)
-    # Its own table, not `supplemental_attribute_associations`: a service is a component,
-    # so the row's two ends resolve against different id sets.
     assoc = only(PFP.get_document(sys).service_associations)
     @test PFP.get_value(assoc, :service_id) == 99
     @test PFP.get_value(assoc, :entity_id) == 1

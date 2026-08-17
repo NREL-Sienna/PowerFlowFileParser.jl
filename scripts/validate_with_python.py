@@ -73,12 +73,24 @@ def main():
             models, type_name, document["components"][type_name], failures
         )
 
+    # `supplemental_attributes` is a flat list carrying no type tag of its own; the
+    # association table is what names each attribute's class, by `attribute_id`. An
+    # attribute with no association has no declarable type, which is a document defect
+    # rather than something to validate against a guess.
+    attribute_types = {
+        assoc["attribute_id"]: assoc["attribute_type"]
+        for assoc in document.get("supplemental_attribute_associations", [])
+        if "attribute_id" in assoc and "attribute_type" in assoc
+    }
     for index, payload in enumerate(document.get("supplemental_attributes", [])):
-        # The document does not record which class each attribute is; GeographicInfo is
-        # the only one this parser emits.
-        validated += validate_group(
-            models, "GeographicInfo", [payload], failures
-        )
+        type_name = attribute_types.get(payload.get("id"))
+        if type_name is None:
+            failures.append(
+                f"supplemental_attributes[{index}]: id={payload.get('id')} has no "
+                "entry in supplemental_attribute_associations, so its type is unknown"
+            )
+            continue
+        validated += validate_group(models, type_name, [payload], failures)
 
     for section, type_name in ASSOCIATION_SECTIONS:
         validated += validate_group(

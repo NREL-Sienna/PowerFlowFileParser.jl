@@ -131,11 +131,15 @@ function _prepare_node_breaker!(pm_data::Dict)
                         # node-bus split off of them; everything else starts PQ and
                         # is promoted back to PV/REF only if a generator lands on it
                         # (see `_migrate_node_breaker_gen_bus_type!`).
-                        rec["bus_type"] = src["bus_type"] == 4 ? 4 : 1
+                        rec["bus_type"] = if src["bus_type"] == PM_BUS_TYPE_ISOLATED
+                            PM_BUS_TYPE_ISOLATED
+                        else
+                            PM_BUS_TYPE_PQ
+                        end
                     else
                         # An out-of-service node gets the same encoding, and the same
                         # isolated-bus bookkeeping, as a BUS record with IDE=4.
-                        rec["bus_type"] = 4
+                        rec["bus_type"] = PM_BUS_TYPE_ISOLATED
                         rec["bus_status"] = false
                         _register_isolated_bus_bookkeeping!(pm_data)
                     end
@@ -306,19 +310,19 @@ function _migrate_node_breaker_gen_bus_type!(pm_data::Dict, nb)
     for (source, target) in gen_moves
         source_bus = pm_data["bus"][source]
         bus_type = source_bus["bus_type"]
-        bus_type in (2, 3) || continue
+        bus_type in (PM_BUS_TYPE_PV, PM_BUS_TYPE_REF) || continue
         source in gen_buses && continue
         # An out-of-service node-bus never takes over voltage control: it would end up
         # typed PV/REF while carrying `bus_status = false`, and the generator that
         # landed on it is de-energized anyway. The source bus is still demoted, since
         # it no longer hosts a generator, and no migration is recorded because none
         # happened.
-        if pm_data["bus"][target]["bus_type"] == 4
-            source_bus["bus_type"] = 1
+        if pm_data["bus"][target]["bus_type"] == PM_BUS_TYPE_ISOLATED
+            source_bus["bus_type"] = PM_BUS_TYPE_PQ
             continue
         end
         pm_data["bus"][target]["bus_type"] = bus_type
-        source_bus["bus_type"] = 1
+        source_bus["bus_type"] = PM_BUS_TYPE_PQ
         get!(() -> Dict{String, Any}(), source_bus, "ext")["nb_bus_type_moved_to"] = target
     end
     return nothing

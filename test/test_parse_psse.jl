@@ -81,7 +81,7 @@ end
 
     # A zero scheduled DC voltage cannot serve as a per-unit base on a line that is
     # in service. The check applies to every PSS(R)E version's two-terminal DC records.
-    raw = read(file, String)
+    raw = read_fixture(file)
     bad = replace(raw, "400.00" => "0.0000"; count = 1)
     @test_throws ArgumentError parse_file(IOBuffer(bad); filetype = "raw")
 

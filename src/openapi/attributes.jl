@@ -1,6 +1,3 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl:209-330
-# (_impedance_correction_table_lookup, _attach_single_ict!, _attach_impedance_correction_tables!).
-#
 # ImpedanceCorrectionData is a supplemental attribute, not a component: it describes one
 # (table, winding) pair and links to whichever TwoWindingTransformer/ThreeWindingTransformer
 # references that table via its own `correction_table`/`primary_correction_table`/
@@ -14,8 +11,8 @@
 # attribute id per pair, created lazily on first reference, with an extra
 # `SupplementalAttributeAssociation` row on every subsequent one.
 #
-# GeographicInfo (`data["substation"]`) is NOT read here — see
-# `KNOWN_UNCONSUMED_PM_SECTIONS` in build.jl.
+# `data["substation"]` becomes a `Substation` attribute; the RAW's latitude/longitude have
+# no schema target and stay in the pm dict.
 
 """
 One piecewise-linear curve and control-mode per impedance-correction table number.
@@ -59,8 +56,8 @@ end
 """
 Build and register a new `ImpedanceCorrectionData` for `(table_number, winding)` and
 attach it to `transformer_id` — the first-sighting path for a (table, winding) pair.
-Returns the new attribute's id, so later sightings of the same pair can associate against
-it directly (see [`_attach_impedance_correction!`](@ref)).
+Returns the attribute, so later sightings of the same pair associate against it directly
+(see [`_attach_impedance_correction!`](@ref)).
 """
 function _new_impedance_correction_attribute!(
     sys::OpenAPISystem,
@@ -77,7 +74,7 @@ function _new_impedance_correction_attribute!(
     set_value!(attribute, :transformer_winding, winding)
     set_value!(attribute, :transformer_control_mode, control_mode)
     add_supplemental_attribute!(sys, attribute, transformer_id)
-    return get_value(attribute, :id)
+    return attribute
 end
 
 """
@@ -85,13 +82,13 @@ Attach the `ImpedanceCorrectionData` for `(d[table_key], winding)` to `transform
 if `d[table_key]` names a table `curves` has an entry for. `table_key` absent, or naming
 table `0` (PSS/E's "no correction table" default, per `pti.jl`'s TAB1/TAB2/TAB3
 defaults), is a no-op — matching PSCB's `_attach_single_ict!`, which only ever finds a
-cache hit for a real table number. `cache` remembers the attribute id already created for
-each `(table_number, winding)` pair, so a pair referenced by more than one transformer
-gets one shared attribute and multiple associations — see the file header.
+cache hit for a real table number. `cache` remembers the attribute already created for each
+`(table_number, winding)` pair, so a pair referenced by more than one transformer gets one
+shared attribute and multiple associations — see the file header.
 """
 function _attach_impedance_correction!(
     sys::OpenAPISystem,
-    cache::Dict{Tuple{Int, String}, Int},
+    cache::Dict{Tuple{Int, String}, PO.ImpedanceCorrectionData},
     curves::Dict{Int, Tuple{PC.PiecewiseLinearData, String}},
     d::Dict,
     table_key::AbstractString,
@@ -108,18 +105,45 @@ function _attach_impedance_correction!(
     key = (table_number, winding)
     if haskey(cache, key)
         # The attribute already exists, so only the association row is new.
-        push!(
-            get_document(sys).supplemental_attribute_associations,
-            PC.SupplementalAttributeAssociation(;
-                attribute_id = cache[key],
-                entity_id = transformer_id,
-                attribute_type = "ImpedanceCorrectionData",
-            ),
-        )
+        add_supplemental_attribute_association!(sys, cache[key], transformer_id)
     else
         cache[key] =
             _new_impedance_correction_attribute!(sys, curves, table_number, winding,
                 transformer_id)
+    end
+    return
+end
+
+"""
+One `Substation` supplemental attribute per `data["substation"]` entry, associated with
+every bus its node list places inside the substation. The schema's `Substation` keeps only
+the identity and grounding resistance; the node, switching-device and terminal detail stays
+in the pm dict, where `read_switch_breaker!` reads the devices it turns into components.
+"""
+function read_substations!(sys::OpenAPISystem, data::Dict; kwargs...)
+    reg = get_registry(sys)
+    for (_, d) in _sorted_pm_entries(get(data, "substation", Dict{String, Any}()))
+        number = Int(d["number"])
+        nodes = get(d, "nodes", Dict{String, Any}[])
+        if isempty(nodes)
+            throw(
+                IS.DataFormatError(
+                    "substation $number has no nodes, so it attaches to no bus",
+                ),
+            )
+        end
+        bus_ids = unique(get_bus_id(reg, Int(node["bus"])) for node in nodes)
+        name = string(d["name"])
+
+        attribute = PO.Substation()
+        set_value!(attribute, :id, register!(reg, "Substation", name))
+        set_value!(attribute, :name, name)
+        set_value!(attribute, :number, number)
+        set_value!(attribute, :grounding_resistance, d["grounding_resistance"], "ohm")
+        add_supplemental_attribute!(sys, attribute, first(bus_ids))
+        for bus_id in Iterators.drop(bus_ids, 1)
+            add_supplemental_attribute_association!(sys, attribute, bus_id)
+        end
     end
     return
 end
@@ -133,7 +157,7 @@ readers — so the name derivation below must match
 [`read_branches!`](@ref)/[`read_3w_transformers!`](@ref) exactly, same formatter kwargs
 included.
 """
-function read_attributes!(sys::OpenAPISystem, data::Dict; kwargs...)
+function read_impedance_corrections!(sys::OpenAPISystem, data::Dict; kwargs...)
     curves = _impedance_correction_curves(data)
     if isempty(curves)
         return
@@ -142,7 +166,7 @@ function read_attributes!(sys::OpenAPISystem, data::Dict; kwargs...)
     bus_lookup = _pm_bus_lookup(sys)
     _get_branch_name = get(kwargs, :branch_name_formatter, _get_pm_branch_name)
     _get_3w_name = get(kwargs, :xfrm_3w_name_formatter, _get_pm_3w_name)
-    cache = Dict{Tuple{Int, String}, Int}()
+    cache = Dict{Tuple{Int, String}, PO.ImpedanceCorrectionData}()
 
     for (_, d) in _sorted_pm_entries(get(data, "branch", Dict{String, Any}()))
         if !haskey(d, "correction_table")
@@ -184,5 +208,15 @@ function read_attributes!(sys::OpenAPISystem, data::Dict; kwargs...)
             transformer_id,
         )
     end
+    return
+end
+
+"""
+The supplemental-attribute stage: every attribute type this parser emits, in one place.
+Runs after the component readers, since each attribute associates against a component id.
+"""
+function read_attributes!(sys::OpenAPISystem, data::Dict; kwargs...)
+    read_substations!(sys, data; kwargs...)
+    read_impedance_corrections!(sys, data; kwargs...)
     return
 end

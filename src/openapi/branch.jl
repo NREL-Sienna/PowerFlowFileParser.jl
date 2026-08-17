@@ -1,9 +1,3 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl:1202-1721
-# (get_branch_type_matpower/psse, make_branch, _make_switch_from_zero_impedance_line,
-# _get_rating, make_line, _transformer_control_fields, _make_transformer_circuit,
-# make_transformer_2w, make_3w_transformer, read_branch!, read_3w_transformer!) and
-# common.jl's `_get_pm_branch_name`/`_get_pm_3w_name`.
-#
 # `data["branch"]` is a native PowerModels section: `_make_per_unit!` divides its power
 # fields (`rate_a`/`rate_b`/`rate_c`, `pf`/`qf`) by `baseMVA`, same as every other PM power
 # quantity, but leaves impedance/admittance fields (`br_r`/`br_x`/`g_fr`/`g_to`/`b_fr`/
@@ -101,7 +95,6 @@ function _get_pm_branch_name(
     return "$bus_f_name-$bus_t_name-i_$index"
 end
 
-"""Ported from PSCB's `_get_pm_3w_name`."""
 function _get_pm_3w_name(
     d::Dict,
     bus_primary_name::AbstractString,
@@ -146,7 +139,7 @@ const TRANSFORMER_CONTROL_OBJECTIVE_NAMES = Dict(
 )
 
 """COD values whose control objective is a phase-shift (angle) control rather than a tap
-(voltage/reactive) control. Ported from PSCB's `_PSSE_PHASE_SHIFT_OBJECTIVES`."""
+(voltage/reactive) control."""
 const _PHASE_SHIFT_OBJECTIVES = (
     "ACTIVE_POWER_FLOW",
     "ACTIVE_POWER_FLOW_DISABLED",
@@ -290,7 +283,7 @@ function _make_transformer_circuit!(
     return get_value(circuit, :id)
 end
 
-"""AC transmission line. Ported from PSCB's `make_line` (:1321-1347). `r`/`x`/`b` are
+"""AC transmission line. `r`/`x`/`b` are
 per-unit BY DOCUMENT CONVENTION on `base_power` (fixed `"pu"`, no discriminator — see the
 Line schema); they are never multiplied by `base_power`. `rating`/`rating_b`/`rating_c`/
 `active_power_flow`/`reactive_power_flow` are power quantities and are multiplied by
@@ -372,7 +365,6 @@ function make_switch_from_zero_impedance_branch!(
     return
 end
 
-"""Ported from PSCB's `get_branch_type_matpower` (:1202-1214)."""
 function _branch_type_matpower(d::Dict)
     tap = d["tap"]
     shift = d["shift"]
@@ -386,7 +378,6 @@ function _branch_type_matpower(d::Dict)
     return :line
 end
 
-"""Ported from PSCB's `get_branch_type_psse` (:1216-1235)."""
 function _branch_type_psse(d::Dict, name::AbstractString)
     if iszero(d["br_r"]) && iszero(d["br_x"])
         return :switch
@@ -451,7 +442,7 @@ function make_transformer_2w!(
 end
 
 """Three-winding transformer + its three `TransformerCircuit`s (each connecting a
-terminal bus to the star bus). Ported from PSCB's `make_3w_transformer` (:1555-1643).
+terminal bus to the star bus).
 Per the file header, `rating_primary`/`active_power_flow_primary`/... are already natural
 units (unlike the 2W path) and are used directly, with no scaling."""
 function make_3w_transformer!(
@@ -533,8 +524,7 @@ end
 
 """
 Create a `Line`, `TwoWindingTransformer`, or `DiscreteControlledACBranch` per
-`data["branch"]` entry. Ported from PSCB's `read_branch!`/`make_branch` (:1237-1268,
-:1645-1683). `data["branch"]` carries both untransformed lines and 2W transformers —
+`data["branch"]` entry. `data["branch"]` carries both untransformed lines and 2W transformers —
 PowerModels represents both as "branch" rows, discriminated by `tap`/`shift`/
 `"transformer"` (MATPOWER) or by zero impedance / the `"transformer"` flag (PSS/E).
 """

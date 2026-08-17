@@ -1,7 +1,4 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl (the `make_*`
-# generator/storage constructors at :774-1141 and :2038-2060) and .../common.jl
-# (`get_generator_mapping`/`get_generator_type`/`calculate_gen_rating`/
-# `calculate_ramp_limit`/`parse_enum_mapping` at :70-193). Cost helpers live in cost.jl.
+# Cost helpers live in cost.jl.
 #
 # Every power quantity in `data["gen"]`/`data["storage"]` arrives as system per-unit on
 # baseMVA (same `_make_per_unit!` correction topology.jl documents). PSCB's own PSY
@@ -175,8 +172,7 @@ function _generator_ext(pm_gen::Dict)
     return extras
 end
 
-"""Thermal generator. Ported from PSCB's `make_thermal_gen` (:983-1092); cost branch
-lives in `make_thermal_cost` (cost.jl)."""
+"""Thermal generator; the cost branch lives in `make_thermal_cost` (cost.jl)."""
 function make_thermal_generator!(
     sys::OpenAPISystem,
     reg::IdRegistry,
@@ -292,7 +288,7 @@ make_hydro_reservoir!(sys::OpenAPISystem, reg::IdRegistry, bus_id::Int, pm_gen::
     _make_hydro_dispatch_body!(sys, reg, bus_id, pm_gen, gen_name, sys_mbase)
 
 """
-Curtailable renewable generator. Ported from PSCB's `make_renewable_dispatch` (:854-897).
+Curtailable renewable generator.
 
 # Bug-compatible with PSCB power_models_data.jl:872,885 — `calculate_gen_rating` already
 multiplies by `base_conversion`; PSCB's `RenewableDispatch(...)` call then multiplies its
@@ -344,9 +340,8 @@ function make_renewable_dispatch!(
     return
 end
 
-"""Non-curtailable renewable generator. Ported from PSCB's `make_renewable_fix`
-(:899-927): unlike every other rating in this file, this one is `pmax` alone, not
-`calculate_gen_rating`."""
+"""Non-curtailable renewable generator. Unlike every other rating in this file, this one
+is `pmax` alone, not `calculate_gen_rating`."""
 function make_renewable_nondispatch!(
     sys::OpenAPISystem,
     reg::IdRegistry,
@@ -377,8 +372,7 @@ function make_renewable_nondispatch!(
     return
 end
 
-"""Synchronous condenser. Ported from PSCB's `make_synchronous_condenser`
-(:1094-1136)."""
+"""Synchronous condenser."""
 function make_synchronous_condenser!(
     sys::OpenAPISystem,
     reg::IdRegistry,
@@ -412,8 +406,7 @@ function make_synchronous_condenser!(
 end
 
 """
-Generic battery storage from a `data["storage"]` entry. Ported from PSCB's
-`make_generic_battery` (:929-954).
+Generic battery storage from a `data["storage"]` entry.
 
 # Bug-compatible with PSCB power_models_data.jl:944,951 — `rating` and `base_power` are
 both assigned the raw `"thermal_rating"` value, itself PowerModels system per-unit and
@@ -482,25 +475,47 @@ function make_storage!(
     return
 end
 
-const GENERATOR_MAPPING_FILE_PM =
-    joinpath(dirname(pathof(PowerFlowFileParser)), "openapi", "generator_mapping_pm.yaml")
+"""
+`type name => (fuel, unit_type)` generator classification, source data for
+[`GENERATOR_MAPPING_PM`](@ref). A `nothing` unit type matches any unit type for that fuel.
+"""
+const GENERATOR_MAPPING_ENTRIES_PM = (
+    "HydroTurbine" => (("HYDRO", nothing), ("HYDRO", "HYDRO")),
+    "HydroDispatch" => (("HYDRO", "ROR"),),
+    "RenewableDispatch" => (
+        ("SOLAR", "PV"),
+        ("SOLAR", "UN"),
+        ("WIND", "WIND"),
+        ("WIND", nothing),
+        ("SOLAR", "CSP"),  # TODO: may need a new struct
+    ),
+    "RenewableNonDispatch" => (("SOLAR", "RTPV"),),
+    "ThermalStandard" => (
+        ("OIL", nothing),
+        ("COAL", nothing),
+        ("NG", nothing),
+        ("GAS", nothing),
+        ("NUCLEAR", nothing),
+        ("NUC", nothing),
+        ("OTHER", "OT"),
+    ),
+    "SynchronousCondenser" => (("SYNC_COND", "SYNC_COND"),),
+    "EnergyReservoirStorage" => (("STORAGE", nothing),),
+)
 
-"""Load `generator_mapping_pm.yaml` into a `(fuel, unit_type) => type name` table. Ported
-from PSCB's `get_generator_mapping`; resolves to the mapped type's bare `String` name
-(dispatch is on `Val(Symbol(name))` below) rather than a `PowerSystems` `DataType`, since
-this reader has no PSY dependency to resolve one against."""
-function _load_generator_mapping(filename::AbstractString)
-    genmap = open(filename) do file
-        YAML.load(file)
-    end
+"""Index [`GENERATOR_MAPPING_ENTRIES_PM`](@ref) by `(fuel, unit_type)`. Resolves to the
+mapped type's bare `String` name (dispatch is on `Val(Symbol(name))` below) rather than a
+`PowerSystems` `DataType`, since this reader has no PSY dependency to resolve one
+against."""
+function _index_generator_mapping(table)
     mappings = Dict{NamedTuple, String}()
-    for (type_name, entries) in genmap
-        for entry in entries
-            key = (fuel = entry["fuel"], unit_type = entry["type"])
+    for (type_name, entries) in table
+        for (fuel, unit_type) in entries
+            key = (fuel = fuel, unit_type = unit_type)
             if haskey(mappings, key)
                 throw(
                     IS.DataFormatError(
-                        "duplicate generator mapping: $type_name $(key.fuel) $(key.unit_type)",
+                        "duplicate generator mapping: $type_name $fuel $unit_type",
                     ),
                 )
             end
@@ -510,7 +525,9 @@ function _load_generator_mapping(filename::AbstractString)
     return mappings
 end
 
-const GENERATOR_MAPPING_PM = _load_generator_mapping(GENERATOR_MAPPING_FILE_PM)
+"""`(fuel, unit_type) => generator class name`, the lookup [`get_generator_type`](@ref)
+resolves against."""
+const GENERATOR_MAPPING_PM = _index_generator_mapping(GENERATOR_MAPPING_ENTRIES_PM)
 
 """
 Mapped component type name for a fuel and unit type. Ported from PSCB's

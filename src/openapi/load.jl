@@ -1,6 +1,4 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl:534-701
-# (make_interruptible_powerload, make_interruptible_standardload, make_power_load,
-# make_standard_load, and read_loads! itself). Cost helpers live in cost.jl.
+# Cost helpers live in cost.jl.
 #
 # Every power quantity in `data["load"]` (and `data["distributed_generation"]`) arrives as
 # system per-unit on baseMVA, the same `_make_per_unit!` correction topology.jl's header
@@ -154,9 +152,7 @@ end
 
 """
 Create one load per `data["load"]` entry, plus a `RenewableNonDispatch` for every load
-whose `source_id` matches a `data["distributed_generation"]` entry.
-
-Ported from PSCB's `read_loads!`. The three-way type choice mirrors PSCB exactly: PSS/E
+whose `source_id` matches a `data["distributed_generation"]` entry. The three-way type choice mirrors PSCB exactly: PSS/E
 loads (`source_type == "pti"`) split on their `"interruptible"` flag between
 `StandardLoad` and `InterruptibleStandardLoad`; every other source falls through to
 `PowerLoad`.

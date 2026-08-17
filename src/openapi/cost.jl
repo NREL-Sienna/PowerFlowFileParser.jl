@@ -1,6 +1,4 @@
-# Ported from PowerSystemCaseBuilder/src/parsers/power_models_data.jl:983-1092 (the cost
-# branch inside make_thermal_gen) and the constant curtailment/renewable/load placeholder
-# costs at :780, :820, :860, and :535-538. PowerModels' PIECEWISE_LINEAR / POLYNOMIAL cost
+# PowerModels' PIECEWISE_LINEAR / POLYNOMIAL cost
 # models already describe a $/hr curve directly (MATPOWER Table B-4), so unlike PTDP's
 # table-driven cost.jl there is no fuel-price/heat-rate separation here: a MATPOWER-shaped
 # generator cost becomes a `CostCurve`, never a `FuelCurve`.
@@ -11,10 +9,14 @@ has no cost data to read from a PowerModels dict."""
 function _zero_cost_curve()
     return PC.CostCurve(;
         power_units = "NATURAL_UNITS",
-        value_curve = PC.InputOutputCurve(;
-            function_data = PC.LinearFunctionData(;
-                proportional_term = 0.0,
-                constant_term = 0.0,
+        value_curve = PC.ValueCurve(
+            PC.InputOutputCurve(;
+                function_data = PC.InputOutputCurveFunctionData(
+                    PC.LinearFunctionData(;
+                        proportional_term = 0.0,
+                        constant_term = 0.0,
+                    ),
+                ),
             ),
         ),
     )
@@ -102,7 +104,11 @@ function make_thermal_cost(gen_name::AbstractString, pm_gen::Dict, sys_mbase::Fl
     return PC.ThermalGenerationCost(;
         variable = PC.CostCurve(;
             power_units = "DEVICE_BASE",
-            value_curve = PC.InputOutputCurve(; function_data = function_data),
+            value_curve = PC.ValueCurve(
+                PC.InputOutputCurve(;
+                    function_data = PC.InputOutputCurveFunctionData(function_data),
+                ),
+            ),
         ),
         fixed = fixed,
         start_up = pm_gen["startup"],

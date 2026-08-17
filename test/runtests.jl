@@ -22,6 +22,16 @@ const MATPOWER_DIR = joinpath(DATA_DIR, "matpower")
 const PSSE_RAW_DIR = joinpath(DATA_DIR, "psse_raw")
 const BAD_DATA = joinpath(DATA_DIR, "bad_data_for_tests")
 
+"""
+Read a raw fixture as text with LF line endings, whatever the checkout produced.
+
+The parser itself is line-ending agnostic — it consumes fixtures through `readlines`, which
+strips `\\n` and `\\r\\n` alike. Tests that instead match a byte pattern against the file
+text are not: a Windows checkout rewrites these LF fixtures to CRLF, and a pattern spanning
+a line boundary then fails to match, silently leaving the text unmodified.
+"""
+read_fixture(path::AbstractString) = replace(read(path, String), "\r\n" => "\n")
+
 const FOURTEEN_BUS_FIXTURE = joinpath(@__DIR__, "modified_14bus_system.raw")
 
 fourteen_bus_pm_data() = PFP.PowerModelsData(FOURTEEN_BUS_FIXTURE)
