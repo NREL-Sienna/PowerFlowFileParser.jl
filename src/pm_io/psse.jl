@@ -264,6 +264,9 @@ function _psse2pm_branch!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
     return
 end
 
+_try_parse(x::Number) = x
+_try_parse(x::AbstractString) = parse(Float64, x)
+
 """
 Salvage line-connected shunts from a BRANCH record that is really a switching
 device (CKT prefixed `@` or `*`), emitting each non-zero end as its own shunt.
@@ -297,7 +300,9 @@ function _switching_device_line_shunts!(pm_data::Dict, branch::Dict, nb)
         ("I", from_bus, to_bus, get(branch, "GI", 0.0), get(branch, "BI", 0.0)),
         ("J", to_bus, from_bus, get(branch, "GJ", 0.0), get(branch, "BJ", 0.0)),
     )
-    for (label, bus_number, other_bus, gs, bs) in ends
+    for (label, bus_number, other_bus, gs_, bs_) in ends
+        gs = _try_parse(gs_)
+        bs = _try_parse(bs_)
         if iszero(gs) && iszero(bs)
             continue
         end
