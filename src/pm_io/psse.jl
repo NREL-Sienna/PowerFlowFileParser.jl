@@ -604,8 +604,19 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool)
         for load in pti_data["LOAD"]
             sub_data = Dict{String, Any}()
             sub_data["load_bus"] = pop!(load, "I")
-            sub_data["pd"] = pop!(load, "PL")
-            sub_data["qd"] = pop!(load, "QL")
+            dgenp = 0.0
+            dgenq = 0.0
+            dgenm = 0.0
+            if pm_data["source_version"] == "35"
+                dgenp = pop!(load, "DGENP", 0.0)
+                dgenq = pop!(load, "DGENQ", 0.0)
+                dgenm = pop!(load, "DGENM", 0.0)
+            end
+
+            # PSS(R)E models distributed generation as negative demand on the load record.
+            # Net active/reactive demand seen by PF should be gross load minus DGEN.
+            sub_data["pd"] = pop!(load, "PL") - dgenp
+            sub_data["qd"] = pop!(load, "QL") - dgenq
             sub_data["pi"] = pop!(load, "IP")
             sub_data["qi"] = pop!(load, "IQ")
             sub_data["py"] = pop!(load, "YP")
@@ -622,6 +633,9 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["ext"]["LOADTYPE"] = ""
             elseif pm_data["source_version"] == "35"
                 sub_data["ext"]["LOADTYPE"] = pop!(load, "LOADTYPE", "")
+                sub_data["ext"]["DGENP"] = dgenp
+                sub_data["ext"]["DGENQ"] = dgenq
+                sub_data["ext"]["DGENM"] = dgenm
             else
                 error("Unsupported PSS(R)E source version: $(pm_data["source_version"])")
             end
@@ -710,9 +724,9 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sort(collect(keys(step_numbers)); by = x -> parse(Int, x[2:end]))
             sub_data["step_number"] = [step_numbers[k] for k in step_numbers_sorted]
             sub_data["step_number"] = sub_data["step_number"][sub_data["step_number"] .!= 0]
-
+            modsw = switched_shunt["MODSW"]
             sub_data["ext"] = Dict{String, Any}(
-                "MODSW" => switched_shunt["MODSW"],
+                "MODSW" => modsw,
                 "ADJM" => switched_shunt["ADJM"],
                 "RMPCT" => switched_shunt["RMPCT"],
                 "RMIDNT" => switched_shunt["RMIDNT"],
@@ -747,6 +761,13 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 sub_data["initial_status"] = ones(Int, length(sub_data["y_increment"]))
             else
                 error("Unsupported PSS(R)E source version: $(pm_data["source_version"])")
+            end
+
+            if modsw ∈ (0, 1, 2)
+                # For fixed/discrete/continuous modes used for PF comparison,
+                # BINIT is treated as the total shunt admittance.
+                # Keep Y_increase but zero all initial states to avoid double counting.
+                sub_data["initial_status"] = zeros(Int, length(sub_data["y_increment"]))
             end
 
             sub_data["index"] = length(pm_data["switched_shunt"]) + 1
@@ -1541,7 +1562,7 @@ function _psse2pm_transformer!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                 )
 
                 for prefix in TRANSFORMER3W_PARAMETER_NAMES
-                    for i in 1:length(WINDING_NAMES)
+                    for i in 1:length(WINDING_NAMES_PARSING)
                         key = "$prefix$i"
                         if pm_data["source_version"] ∈ ("30", "32", "33")
                             sub_data["ext"][key] = transformer[key]
@@ -1676,12 +1697,14 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
 
             sub_data["rectifier_transformer_ratio"] = dcline["TRR"]
             sub_data["rectifier_tap_setting"] = dcline["TAPR"]
-            sub_data["rectifier_tap_limits"] = (min = dcline["TMNR"], max = dcline["TMXR"])
+            sub_data["rectifier_tap_limits"] =
+                Dict{String, Any}("min" => dcline["TMNR"], "max" => dcline["TMXR"])
             sub_data["rectifier_tap_step"] = dcline["STPR"]
 
             sub_data["inverter_transformer_ratio"] = dcline["TRI"]
             sub_data["inverter_tap_setting"] = dcline["TAPI"]
-            sub_data["inverter_tap_limits"] = (min = dcline["TMNI"], max = dcline["TMXI"])
+            sub_data["inverter_tap_limits"] =
+                Dict{String, Any}("min" => dcline["TMNI"], "max" => dcline["TMXI"])
             sub_data["inverter_tap_step"] = dcline["STPI"]
 
             sub_data["loss0"] = 0.0
@@ -1709,10 +1732,14 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
                     @info("$key outside reasonable limits, setting to 0 degress")
                 end
             end
-            sub_data["rectifier_delay_angle_limits"] =
-                (min = deg2rad(anmn[1]), max = deg2rad(dcline["ANMXR"]))
-            sub_data["inverter_extinction_angle_limits"] =
-                (min = deg2rad(anmn[2]), max = deg2rad(dcline["ANMXI"]))
+            sub_data["rectifier_delay_angle_limits"] = Dict{String, Any}(
+                "min" => deg2rad(anmn[1]),
+                "max" => deg2rad(dcline["ANMXR"]),
+            )
+            sub_data["inverter_extinction_angle_limits"] = Dict{String, Any}(
+                "min" => deg2rad(anmn[2]),
+                "max" => deg2rad(dcline["ANMXI"]),
+            )
 
             sub_data["rectifier_delay_angle"] = deg2rad(anmn[1])
             sub_data["inverter_extinction_angle"] = deg2rad(anmn[2])
@@ -1813,14 +1840,15 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["ac_setpoint_to"] = to_bus["ACSET"]
 
             # ALOSS, MINLOSS in kW, and BLOSS in kW/A. Divide by a 1000 to transform into MW, and divide by baseMVA to normalize to per-unit.
-            sub_data["converter_loss_from"] = LinearCurve(
+            sub_data["converter_loss_from"] = IS.LinearCurve(
                 from_bus["BLOSS"] / (1000.0 * baseMVA),
                 (from_bus["ALOSS"] + from_bus["MINLOSS"]) / (1000.0 * baseMVA),
             )
-            sub_data["converter_loss_to"] = LinearCurve(
+            sub_data["converter_loss_to"] = IS.LinearCurve(
                 to_bus["BLOSS"] / (1000.0 * baseMVA),
                 (to_bus["ALOSS"] + to_bus["MINLOSS"]) / (1000.0 * baseMVA),
             )
+            # since IS is an allowed dep in this repo, using IS.LinearCurve
 
             sub_data["pf"] = 0.0
             sub_data["pt"] = 0.0
