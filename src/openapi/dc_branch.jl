@@ -180,7 +180,7 @@ are already natural (Amperes / a bare fraction) and pass through unscaled.
 voltage, or on `sys_mbase` when it controls DC power.
 
 `setpoint_voltage_units` (decoupled from `voltage_units`, which tags only
-`voltage_limits_from`/`to`) is set unconditionally to `DEVICE_BASE`: PSS/E always reports a
+`voltage_limits_from`/`to`) is set unconditionally to `COMPONENT_BASE`: PSS/E always reports a
 voltage-controlling side's DC setpoint as p.u. of `rated_dc_voltage` (`psse.jl` pre-divides
 `DCSET` by `base_voltage`) and a voltage-controlling AC setpoint (`ACSET`) as p.u. of the AC
 bus's own base voltage — never kV. The `DC_POWER`/`AC_REACTIVE_POWER` branches have their own
@@ -218,7 +218,7 @@ function make_vscline!(
     set_value!(component, :dc_current, get(d, "if", 0.0), "A")
     set_value!(component, :reactive_power_from, get(d, "qf", 0.0) * sys_mbase, "MVAr")
     # See the docstring: PSS/E's voltage-controlling setpoints are always already p.u.
-    set_value!(component, :setpoint_voltage_units, "DEVICE_BASE")
+    set_value!(component, :setpoint_voltage_units, "COMPONENT_BASE")
     if d["dc_voltage_control_from"]
         set_value!(component, :dc_control_from, "DC_VOLTAGE")
         set_value!(component, :dc_setpoint_from, d["dc_setpoint_from"], "pu")

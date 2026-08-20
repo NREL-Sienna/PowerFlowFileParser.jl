@@ -78,13 +78,13 @@ end
     @test PFP.get_value(line, :reactive_power_flow) == 0.0
 end
 
-@testset "Line: rating is per-unit-on-own-base_power under DEVICE_BASE" begin
+@testset "Line: rating is per-unit-on-own-base_power under COMPONENT_BASE" begin
     # NATURAL_UNITS stores rating = d["rate_a"] * base_power (own base_power, always the
-    # system base for a Line -- see `_resolve_base_power`). DEVICE_BASE divides that back
+    # system base for a Line -- see `_resolve_base_power`). COMPONENT_BASE divides that back
     # by the same base_power, so the document should carry PowerModels' raw per-unit
     # `rate_a` verbatim; r/x/b are pu-by-convention and untouched either way.
     pm = fourteen_bus_pm_data()
-    sys = PFP.build_openapi_system(pm; unit_system = "DEVICE_BASE")
+    sys = PFP.build_openapi_system(pm; unit_system = "COMPONENT_BASE")
     d = only(
         v for v in values(pm.data["branch"]) if
         v["f_bus"] == 102 && v["t_bus"] == 104,
@@ -108,7 +108,7 @@ end
 
     circuit = _transformer_circuit_between(sys, 109, 104)
     @test PFP.get_value(circuit, :available)
-    @test PFP.get_value(circuit, :parameter_units) == "DEVICE_BASE"
+    @test PFP.get_value(circuit, :parameter_units) == "COMPONENT_BASE"
     @test PFP.get_value(circuit, :r) == d["br_r"]
     @test PFP.get_value(circuit, :x) == d["br_x"]
     @test PFP.get_value(circuit, :tap) == d["tap"]
@@ -136,23 +136,23 @@ end
     @test PFP.get_value(circuit, :number_of_tap_positions) == Int(d["NTP1"])
 
     transformer = _two_winding_transformer_for(sys, circuit)
-    @test PFP.get_value(transformer, :admittance_units) == "DEVICE_BASE"
+    @test PFP.get_value(transformer, :admittance_units) == "COMPONENT_BASE"
     @test _matches_nt(
         PFP.get_value(transformer, :magnetizing_shunt),
         (real = d["g_fr"], imag = d["b_fr"]),
     )
 end
 
-@testset "TransformerCircuit: rating/flow are per-unit-on-own-base_power under DEVICE_BASE, r/x/magnetizing_shunt untouched" begin
+@testset "TransformerCircuit: rating/flow are per-unit-on-own-base_power under COMPONENT_BASE, r/x/magnetizing_shunt untouched" begin
     # NATURAL_UNITS stores rating = d["rate_a"] * d["base_power"] (the circuit's own base,
-    # not necessarily sys_mbase). DEVICE_BASE divides that back by the same base_power, so
+    # not necessarily sys_mbase). COMPONENT_BASE divides that back by the same base_power, so
     # the document should carry PowerModels' raw per-unit `rate_a` verbatim. r/x/
-    # magnetizing_shunt are always DEVICE_BASE pu already (their own `parameter_units`/
+    # magnetizing_shunt are always COMPONENT_BASE pu already (their own `parameter_units`/
     # `admittance_units` discriminators, independent of the document's unit_system) and
     # must not move at all between the two documents.
     pm = fourteen_bus_pm_data()
     sys_natural = PFP.build_openapi_system(pm)
-    sys_device = PFP.build_openapi_system(pm; unit_system = "DEVICE_BASE")
+    sys_device = PFP.build_openapi_system(pm; unit_system = "COMPONENT_BASE")
     d = only(
         v for v in values(pm.data["branch"]) if
         v["f_bus"] == 109 && v["t_bus"] == 104,
@@ -211,10 +211,10 @@ end
 
     @test PFP.get_value(transformer, :star_bus) ==
           PFP.get_bus_id(PFP.get_registry(sys), d["star_bus"])
-    @test PFP.get_value(transformer, :parameter_units) == "DEVICE_BASE"
+    @test PFP.get_value(transformer, :parameter_units) == "COMPONENT_BASE"
     @test PFP.get_value(transformer, :r_12) == d["r_12"]
     @test PFP.get_value(transformer, :base_power_12) == d["base_power_12"]
-    @test PFP.get_value(transformer, :admittance_units) == "DEVICE_BASE"
+    @test PFP.get_value(transformer, :admittance_units) == "COMPONENT_BASE"
     @test _matches_nt(
         PFP.get_value(transformer, :magnetizing_shunt),
         (real = d["g"], imag = d["b"]),
@@ -271,11 +271,11 @@ end
           (PFP.get_value(switch, :available) ? "CLOSED" : "OPEN")
 end
 
-@testset "TransformerCircuit.controlled_quantity_limits passes through UNSCALED under DEVICE_BASE for a power-flow-family control_objective" begin
+@testset "TransformerCircuit.controlled_quantity_limits passes through UNSCALED under COMPONENT_BASE for a power-flow-family control_objective" begin
     # Regression: `controlled_quantity_limits`'s schema quantity DOES switch with
     # `control_objective` (pu for VOLTAGE-family objectives, MW/MVAr for ACTIVE_POWER_FLOW/
     # REACTIVE_POWER_FLOW/CONTROL_OF_DC_LINE-family ones), which made a first cut of the
-    # DEVICE_BASE registry classify it `:dynamic` (converting the power-flow-family
+    # COMPONENT_BASE registry classify it `:dynamic` (converting the power-flow-family
     # branches by the circuit's own base_power). That was wrong: PowerSystems' own
     # `to_openapi` calls the SAME unscaled `_minmax_po(get_controlled_quantity_limits(...))`
     # in BOTH `DeviceBaseUnit` and `NaturalUnit` (export_handwritten.jl:166-167, :195-196) —
@@ -286,12 +286,12 @@ end
     # the bug was in.
     #
     # base_power = 50, sys_mbase = 100 (base_conversion-sensitive, same discipline as the
-    # storage/generator DEVICE_BASE tests): active_power_flow/reactive_power_flow DO
+    # storage/generator COMPONENT_BASE tests): active_power_flow/reactive_power_flow DO
     # convert (10.0/50.0 = 0.2, 5.0/50.0 = 0.1) so this test also proves the fix did not
     # collaterally stop scaling this circuit's other power fields. controlled_quantity_limits
     # must come out exactly (50.0, 150.0) -- if it were wrongly divided by base_power = 50
     # it would read (1.0, 3.0) instead, a clearly different and wrong number.
-    sys = PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE")
+    sys = PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE")
     reg = PFP.get_registry(sys)
     from_id = _register_bus!(sys, 1, "b1")
     to_id = _register_bus!(sys, 2, "b2")

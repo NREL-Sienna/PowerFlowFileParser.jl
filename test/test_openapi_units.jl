@@ -170,7 +170,7 @@ end
     @test line.r == 5.0
 
     other = PFP.PO.TwoTerminalLCCLine()
-    PFP.set_value!(other, :parameter_units, "DEVICE_BASE")
+    PFP.set_value!(other, :parameter_units, "COMPONENT_BASE")
     @test_throws IS.DataFormatError PFP.set_value!(other, :r, 5.0, "ohm")
     PFP.set_value!(other, :r, 0.01, "pu")
     @test other.r == 0.01

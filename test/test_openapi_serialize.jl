@@ -48,9 +48,9 @@ end
     @test !PFP.uses_per_unit(sys)
 end
 
-@testset "unit_system accepts DEVICE_BASE" begin
-    sys = PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE")
-    @test PFP.get_unit_system(sys) == "DEVICE_BASE"
+@testset "unit_system accepts COMPONENT_BASE" begin
+    sys = PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE")
+    @test PFP.get_unit_system(sys) == "COMPONENT_BASE"
     @test PFP.uses_per_unit(sys)
 end
 
@@ -60,8 +60,8 @@ end
 
 @testset "unit_system is carried into the document" begin
     # The NATURAL_UNITS side is covered by "document top-level shape" above.
-    device_base = _round_trip(PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE"))
-    @test device_base["unit_system"] == "DEVICE_BASE"
+    device_base = _round_trip(PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE"))
+    @test device_base["unit_system"] == "COMPONENT_BASE"
 end
 
 @testset "components are grouped by type name in sorted order" begin
@@ -101,7 +101,7 @@ end
 @testset "to_json refuses to overwrite without force" begin
     path = joinpath(mktempdir(), "case.json")
     PFP.to_json(_serialize_test_system(), path)
-    # PC.write_document owns the "already exists" check for the JSON path now.
+    # PD.write_document owns the "already exists" check for the JSON path now.
     @test_throws PFP.PC.DocumentFormatError PFP.to_json(_serialize_test_system(), path)
     @test PFP.to_json(_serialize_test_system(), path; force = true) == path
 end
@@ -137,12 +137,12 @@ end
     end
 end
 
-@testset "a written document reads back through PC.read_document" begin
+@testset "a written document reads back through PD.read_document" begin
     sys = _serialize_test_system()
     path = joinpath(mktempdir(), "case.json")
     PFP.to_json(sys, path)
-    doc = PFP.PC.read_document(path)
-    @test PFP.PC.get_base_power(doc) == 100.0
-    @test length(PFP.PC.get_components(doc, "ACBus")) == 1
-    @test length(PFP.PC.get_components(doc, "Area")) == 1
+    doc = PFP.PD.read_document(path)
+    @test PFP.PD.get_base_power(doc) == 100.0
+    @test length(PFP.PD.get_components(doc, "ACBus")) == 1
+    @test length(PFP.PD.get_components(doc, "Area")) == 1
 end

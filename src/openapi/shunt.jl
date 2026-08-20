@@ -1,7 +1,7 @@
 # None of `"shunt"`/`"switched_shunt"`/`"facts"` are native PowerModels
 # sections, so `_make_per_unit!` never touches them; every field PFFP's own psse.jl
 # parser writes is used exactly as written (either PSS/E-native per-unit-at-unity-voltage,
-# `ShuntAdmittanceUnitBasis.DEVICE_MVAR`, for shunt admittances, or a plain natural value
+# `ShuntAdmittanceUnitBasis.COMPONENT_MVAR`, for shunt admittances, or a plain natural value
 # for everything else) — no `sys_mbase` scaling anywhere in this file.
 
 """Fixed admittance (PSS/E `FIXED SHUNT`)."""
@@ -18,7 +18,7 @@ function make_fixed_admittance!(
     set_value!(component, :available, Bool(d["status"]))
     set_value!(component, :bus, bus_id)
     set_value!(component, :base_power, get_base_power(sys), "MVA")
-    set_value!(component, :admittance_units, "DEVICE_MVAR")
+    set_value!(component, :admittance_units, "COMPONENT_MVAR")
     set_value!(component, :Y, (real = d["gs"], imag = d["bs"]), "MVAr")
     add_component!(sys, component)
     return
@@ -88,7 +88,7 @@ function make_switched_admittance!(
     set_value!(component, :name, name)
     set_value!(component, :available, Bool(d["status"]))
     set_value!(component, :bus, bus_id)
-    set_value!(component, :admittance_units, "DEVICE_MVAR")
+    set_value!(component, :admittance_units, "COMPONENT_MVAR")
     set_value!(component, :Y, (real = d["gs"], imag = d["bs"]), "MVAr")
     set_value!(component, :number_of_steps, d["step_number"])
     _set_y_increase!(component, d["y_increment"], "MVAr")
@@ -146,7 +146,7 @@ function make_facts!(
     set_value!(component, :bus, bus_id)
     set_value!(component, :base_power, get_base_power(sys), "MVA")
     set_value!(component, :control_mode, control_mode)
-    set_value!(component, :voltage_setpoint_units, "DEVICE_BASE")
+    set_value!(component, :voltage_setpoint_units, "COMPONENT_BASE")
     set_value!(component, :voltage_setpoint, d["voltage_setpoint"], "pu")
     set_value!(component, :max_shunt_current, d["max_shunt_current"], "MVA")
     set_value!(component, :reactive_power_required, get(d, "reactive_power_required", 0.0),

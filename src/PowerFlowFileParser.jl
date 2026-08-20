@@ -20,8 +20,10 @@ import Unicode: normalize
 import JSON
 import OpenAPI
 import PowerCoreOpenAPIModels
+import PowerOpenAPIModels
 import PowerOperationsOpenAPIModels
 const PC = PowerCoreOpenAPIModels
+const PD = PowerOpenAPIModels
 const PO = PowerOperationsOpenAPIModels
 
 import InfrastructureSystems

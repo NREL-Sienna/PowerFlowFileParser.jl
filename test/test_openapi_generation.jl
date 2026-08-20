@@ -69,18 +69,18 @@ end
     end
 end
 
-@testset "ThermalStandard fields are per-unit-on-own-mbase under DEVICE_BASE, mbase != sys_mbase" begin
+@testset "ThermalStandard fields are per-unit-on-own-mbase under COMPONENT_BASE, mbase != sys_mbase" begin
     # sys_mbase=100, mbase=50: every 14-bus generator states mbase == sys_mbase (see this
-    # file's header), so DEVICE_BASE's own-base division is only distinguishable from the
+    # file's header), so COMPONENT_BASE's own-base division is only distinguishable from the
     # system base on a synthetic generator, same reason the "Bug-compatible" tests below
     # build one directly rather than through build_openapi_system.
     #
     # NATURAL_UNITS would store natural_MW = pg * base_conversion * mbase, where
     # base_conversion = sys_mbase / mbase (see the mbase == sys_mbase testset above).
-    # DEVICE_BASE divides that by the generator's own mbase: pu = natural_MW / mbase =
+    # COMPONENT_BASE divides that by the generator's own mbase: pu = natural_MW / mbase =
     # pg * base_conversion = pg * (sys_mbase / mbase) -- i.e. the raw system-per-unit value
     # rescaled onto the device's own base, independent of `mbase`'s absolute value.
-    sys = PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE")
+    sys = PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE")
     reg = PFP.get_registry(sys)
     bus = _register_test_bus!(sys)
     d = Dict{String, Any}(
@@ -102,7 +102,7 @@ end
     # power-family quantity set: with no ramp_agc/ramp_10/ramp_30 in `d`,
     # calculate_ramp_limit falls back to (up = down = abs(pmax)) *without* base_conversion
     # (`calculate_ramp_limit`'s own documented inconsistency) -- natural_MW = pmax * mbase,
-    # so DEVICE_BASE's pu = natural_MW / mbase collapses back to plain `pmax`.
+    # so COMPONENT_BASE's pu = natural_MW / mbase collapses back to plain `pmax`.
     @test PFP.get_value(gen, :ramp_limits).up ≈ d["pmax"]
     @test PFP.get_value(gen, :ramp_limits).down ≈ d["pmax"]
 end
@@ -122,7 +122,7 @@ end
         @test cost.start_up == 0.0
         @test cost.shut_down == 0.0
         variable = cost.variable
-        @test variable.power_units == "DEVICE_BASE"
+        @test variable.power_units == "COMPONENT_BASE"
         function_data = variable.value_curve.value.function_data.value
         @test function_data.quadratic_term == 0.0
         @test function_data.proportional_term == 1.0
@@ -317,9 +317,9 @@ end
     @test PFP.get_value(storage, :storage_technology_type) == "OTHER_CHEM"
 end
 
-@testset "EnergyReservoirStorage fields are per-unit-on-own-thermal_rating under DEVICE_BASE, device base != system base" begin
+@testset "EnergyReservoirStorage fields are per-unit-on-own-thermal_rating under COMPONENT_BASE, device base != system base" begin
     # Regression: storage_capacity's quantity (ElectricalEnergy) is only resolvable
-    # through `energy_units`' instance-level discriminator. A DEVICE_BASE pass that
+    # through `energy_units`' instance-level discriminator. A COMPONENT_BASE pass that
     # treats every instance-dispatched field as "leave untouched" skips this conversion
     # silently instead of erroring. `own base_power` here is
     # `thermal_rating` (PSCB's bug-compatible battery convention, same as the
@@ -334,9 +334,9 @@ end
     #   input/output_active_power_limits.max = charge/discharge_rating * thermal_rating
     #   reactive_power    = qs * thermal_rating = 0.1 * 50.0 = 5.0
     #   reactive_power_limits = (qmin, qmax) .* thermal_rating
-    # DEVICE_BASE divides every one of those back by the SAME thermal_rating = 50.0,
+    # COMPONENT_BASE divides every one of those back by the SAME thermal_rating = 50.0,
     # collapsing each to the raw un-multiplied input value.
-    sys = PFP.OpenAPISystem(100.0; unit_system = "DEVICE_BASE")
+    sys = PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE")
     reg = PFP.get_registry(sys)
     bus = _register_test_bus!(sys)
     d = Dict{String, Any}(
@@ -359,11 +359,11 @@ end
     @test PFP.get_value(storage, :reactive_power) ≈ d["qs"]
     @test PFP.get_value(storage, :reactive_power_limits).min ≈ d["qmin"]
     @test PFP.get_value(storage, :reactive_power_limits).max ≈ d["qmax"]
-    # Dimensionless / ratio fields: untouched by DEVICE_BASE either way.
+    # Dimensionless / ratio fields: untouched by COMPONENT_BASE either way.
     @test PFP.get_value(storage, :initial_storage_capacity_level) == 0.5
 end
 
-@testset "DEVICE_BASE conversion errors loudly on an unregistered instance-dispatched field" begin
+@testset "COMPONENT_BASE conversion errors loudly on an unregistered instance-dispatched field" begin
     # Pins the structural guarantee: an
     # instance-level-discriminated field with no verdict in
     # `_DEVICEBASE_INSTANCE_DISPATCHED` must error, not silently fall through unconverted.
@@ -463,10 +463,10 @@ end
 
 @testset "a fresh 14-bus document with loads and generators round-trips through PC" begin
     sys = PFP.build_openapi_system(fourteen_bus_pm_data())
-    PFP.PC.validate_document(PFP.get_document(sys))
+    PFP.PD.validate_document(PFP.get_document(sys))
     path = joinpath(mktempdir(), "fourteen_bus_gen.json")
     PFP.to_json(sys, path)
-    doc = PFP.PC.read_document(path)
-    @test length(PFP.PC.get_components(doc, "StandardLoad")) == 13
-    @test length(PFP.PC.get_components(doc, "ThermalStandard")) == 7
+    doc = PFP.PD.read_document(path)
+    @test length(PFP.PD.get_components(doc, "StandardLoad")) == 13
+    @test length(PFP.PD.get_components(doc, "ThermalStandard")) == 7
 end

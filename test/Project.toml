@@ -1,4 +1,5 @@
 [deps]
+PowerOpenAPIModels = "bed98974-b02a-5e2f-9ee0-a103f5c450dd"
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 InfrastructureSystems = "2cd47ed4-ca9b-11e9-27f2-ab636a7671f1"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
@@ -14,6 +15,7 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 PowerFlowFileParser = {path = ".."}
 PowerCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "feat/infrastore-integration", subdir = "PowerCoreOpenAPIModels.jl"}
 PowerOperationsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "feat/infrastore-integration", subdir = "PowerOperationsOpenAPIModels.jl"}
+PowerOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "feat/infrastore-integration", subdir = "PowerOpenAPIModels.jl"}
 
 [compat]
 julia = "^1.6"

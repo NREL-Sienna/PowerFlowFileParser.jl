@@ -55,7 +55,7 @@ end
     @test PFP.get_value(line, :base_power) == base
 end
 
-@testset "FixedAdmittance: PSS/E-native DEVICE_MVAR Y, no scaling" begin
+@testset "FixedAdmittance: PSS/E-native COMPONENT_MVAR Y, no scaling" begin
     pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
     d = only(v for v in values(pm.data["shunt"]) if v["shunt_bus"] == 111)
@@ -64,7 +64,7 @@ end
         PFP.get_value(s, :bus) == PFP.get_bus_id(PFP.get_registry(sys), 111)
     )
     @test PFP.get_value(shunt, :available) == d["status"]
-    @test PFP.get_value(shunt, :admittance_units) == "DEVICE_MVAR"
+    @test PFP.get_value(shunt, :admittance_units) == "COMPONENT_MVAR"
     @test _matches_nt(PFP.get_value(shunt, :Y), (real = d["gs"], imag = d["bs"]))
 end
 
@@ -108,7 +108,7 @@ end
     facts = only(PFP.get_components(sys, "FACTSControlDevice"))
     @test PFP.get_value(facts, :control_mode) == "NML"
     @test PFP.get_value(facts, :available) == d["available"]
-    @test PFP.get_value(facts, :voltage_setpoint_units) == "DEVICE_BASE"
+    @test PFP.get_value(facts, :voltage_setpoint_units) == "COMPONENT_BASE"
     @test PFP.get_value(facts, :voltage_setpoint) == d["voltage_setpoint"]
     @test PFP.get_value(facts, :max_shunt_current) == d["max_shunt_current"]
     @test PFP.get_value(facts, :reactive_power_required) == 0.0
@@ -257,12 +257,12 @@ end
     @test PFP.get_value(vsc, :rated_dc_voltage) == 100.0
 end
 
-@testset "TwoTerminalVSCLine: make_vscline! stores DC_VOLTAGE/AC_VOLTAGE setpoints as DEVICE_BASE pu" begin
+@testset "TwoTerminalVSCLine: make_vscline! stores DC_VOLTAGE/AC_VOLTAGE setpoints as COMPONENT_BASE pu" begin
     # SiennaSchemas decouples setpoint_voltage_units (dc_setpoint_from/to,
     # ac_setpoint_from/to) from voltage_units (voltage_limits_from/to only), so tagging a
-    # voltage-controlling setpoint DEVICE_BASE no longer relabels the untouched
+    # voltage-controlling setpoint COMPONENT_BASE no longer relabels the untouched
     # voltage_limits_from/to defaults. make_vscline! sets setpoint_voltage_units =
-    # "DEVICE_BASE" unconditionally and stores the already-p.u. PSS/E value with unit "pu" —
+    # "COMPONENT_BASE" unconditionally and stores the already-p.u. PSS/E value with unit "pu" —
     # an identity conversion, so the stored value equals the input.
     data = Dict{String, Any}(
         "baseMVA" => 100.0, "source_type" => "pti",
@@ -298,7 +298,7 @@ end
         ),
     )
     @test PFP.get_value(vsc_dc, :dc_control_from) == "DC_VOLTAGE"
-    @test PFP.get_value(vsc_dc, :setpoint_voltage_units) == "DEVICE_BASE"
+    @test PFP.get_value(vsc_dc, :setpoint_voltage_units) == "COMPONENT_BASE"
     @test PFP.get_value(vsc_dc, :dc_setpoint_from) == 1.03
     @test PFP.get_value(vsc_dc, :voltage_units) == "NATURAL_UNITS"
     @test _matches_nt(PFP.get_value(vsc_dc, :voltage_limits_from), (min = 0.0, max = 999.9))
@@ -314,7 +314,7 @@ end
         ),
     )
     @test PFP.get_value(vsc_ac, :ac_control_from) == "AC_VOLTAGE"
-    @test PFP.get_value(vsc_ac, :setpoint_voltage_units) == "DEVICE_BASE"
+    @test PFP.get_value(vsc_ac, :setpoint_voltage_units) == "COMPONENT_BASE"
     @test PFP.get_value(vsc_ac, :ac_setpoint_from) == 1.02
     @test PFP.get_value(vsc_ac, :voltage_units) == "NATURAL_UNITS"
     @test _matches_nt(PFP.get_value(vsc_ac, :voltage_limits_to), (min = 0.0, max = 999.9))
@@ -328,12 +328,12 @@ end
     # base_voltage (rated_dc_voltage) = 500.0 kV => 515.0 / 500.0 = 1.03 p.u.
     # That division already produces the number PSY expects, so passing it
     # through set_value! with unit "pu" is an identity conversion: source
-    # unit "pu" equals the DEVICE_BASE-branch declared unit "pu", and "pu"
+    # unit "pu" equals the COMPONENT_BASE-branch declared unit "pu", and "pu"
     # carries no fixed conversion factor (to_default: null in
     # Core/units.json) -- there is nothing left to scale.
     vsc = PFP.PO.TwoTerminalVSCLine()
     PFP.set_value!(vsc, :dc_control_from, "DC_VOLTAGE")
-    PFP.set_value!(vsc, :setpoint_voltage_units, "DEVICE_BASE")
+    PFP.set_value!(vsc, :setpoint_voltage_units, "COMPONENT_BASE")
     PFP.set_value!(vsc, :dc_setpoint_from, 515.0 / 500.0, "pu")
     @test PFP.get_value(vsc, :dc_setpoint_from) == 1.03
 
@@ -349,7 +349,7 @@ end
     # DC_VOLTAGE in TwoTerminalVSCLine.json's dc_setpoint_from annotation;
     # confirm the emitter's recursive walk produced the same result for it.
     PFP.set_value!(vsc, :dc_control_from, "DC_VOLTAGE_DROOP")
-    PFP.set_value!(vsc, :setpoint_voltage_units, "DEVICE_BASE")
+    PFP.set_value!(vsc, :setpoint_voltage_units, "COMPONENT_BASE")
     PFP.set_value!(vsc, :dc_setpoint_from, 1.03, "pu")
     @test PFP.get_value(vsc, :dc_setpoint_from) == 1.03
 
@@ -365,11 +365,11 @@ end
     # ACSET for a VSC converter bus is already per-unit of the AC bus's own
     # base voltage (the same PSS/E convention as bus VM), so no scaling
     # happens before this value reaches PSY. Passing "pu" here is again an
-    # identity: source unit "pu" equals the AC_VOLTAGE/DEVICE_BASE-branch
+    # identity: source unit "pu" equals the AC_VOLTAGE/COMPONENT_BASE-branch
     # declared unit "pu".
     vsc = PFP.PO.TwoTerminalVSCLine()
     PFP.set_value!(vsc, :ac_control_from, "AC_VOLTAGE")
-    PFP.set_value!(vsc, :setpoint_voltage_units, "DEVICE_BASE")
+    PFP.set_value!(vsc, :setpoint_voltage_units, "COMPONENT_BASE")
     PFP.set_value!(vsc, :ac_setpoint_from, 1.02, "pu")
     @test PFP.get_value(vsc, :ac_setpoint_from) == 1.02
 

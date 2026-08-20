@@ -139,8 +139,8 @@ end
     sys = PFP.build_openapi_system(fourteen_bus_pm_data())
     path = joinpath(mktempdir(), "fourteen_bus_attributes.json")
     PFP.to_json(sys, path)
-    doc = PFP.PC.read_document(path)
-    icts = PFP.PC.get_supplemental_attributes(doc, "ImpedanceCorrectionData")
+    doc = PFP.PD.read_document(path)
+    icts = PFP.PD.get_supplemental_attributes(doc, "ImpedanceCorrectionData")
     @test length(icts) == 8
-    PFP.PC.validate_document(doc)
+    PFP.PD.validate_document(doc)
 end

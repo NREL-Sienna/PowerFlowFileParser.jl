@@ -71,7 +71,7 @@ a caller never mistakes a partial document for a complete one.
 
 `unit_system` selects the convention the values are stored in, same as
 [`OpenAPISystem`](@ref): `"NATURAL_UNITS"` (the default) leaves every reader's MW/MVAr/MVA
-values as computed; `"DEVICE_BASE"` additionally runs [`apply_device_base_conversion!`](@ref)
+values as computed; `"COMPONENT_BASE"` additionally runs [`apply_device_base_conversion!`](@ref)
 over the built document, converting every power-family field into per-unit on the
 component's own device base (or the system base, for the few types with none of their own) —
 the document PowerSystems' `DeviceBaseUnit` importer expects. Keyword arguments — the

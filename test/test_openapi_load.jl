@@ -35,12 +35,12 @@ end
     end
 end
 
-@testset "StandardLoad fields are per-unit-on-device-base under DEVICE_BASE" begin
+@testset "StandardLoad fields are per-unit-on-device-base under COMPONENT_BASE" begin
     # A StandardLoad's own `base_power` is always the system base (read_loads! has no
-    # per-load mbase concept -- unlike a generator's `mbase`), so DEVICE_BASE's
+    # per-load mbase concept -- unlike a generator's `mbase`), so COMPONENT_BASE's
     # natural_MW / base_power collapses to (raw_pu * base_power) / base_power == raw_pu:
     # the document should carry PowerModels' own system-per-unit numbers back verbatim.
-    sys = PFP.build_openapi_system(fourteen_bus_pm_data(); unit_system = "DEVICE_BASE")
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data(); unit_system = "COMPONENT_BASE")
     data = fourteen_bus_pm_data().data
     for load in PFP.get_components(sys, "StandardLoad")
         name = PFP.get_value(load, :name)

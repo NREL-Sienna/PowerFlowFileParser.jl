@@ -1,11 +1,11 @@
-# Hand-written: the DEVICE_BASE post-build conversion pass.
+# Hand-written: the COMPONENT_BASE post-build conversion pass.
 #
 # Every reader in this directory (load.jl, generation.jl, branch.jl, ...) computes and
 # assigns natural-unit values (MW/MVAr/MVA) onto the OpenAPI components it builds,
 # regardless of `unit_system` — `set_value!` (units.jl) only converts between compatible
 # physical units (kW -> MW), never into a per-unit convention. Before this pass existed,
-# a `unit_system = "DEVICE_BASE"` document stamped the flag but carried the same natural
-# values as `"NATURAL_UNITS"`. This pass closes that gap: when the document is DEVICE_BASE,
+# a `unit_system = "COMPONENT_BASE"` document stamped the flag but carried the same natural
+# values as `"NATURAL_UNITS"`. This pass closes that gap: when the document is COMPONENT_BASE,
 # it walks every built component afterward and divides each power-family field by the
 # component's own device base (or, for a type with no device base of its own, the
 # document's system base) — the exact inverse of what PowerSystems' own `NaturalUnit`
@@ -94,9 +94,9 @@ const _DEVICEBASE_SYSTEM_BASE_TYPES =
     Set(["OnlineReserve", "OfflineReserve", "GroupReserve"])
 
 const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
-    # parameter_units/admittance_units/voltage_setpoint_units always "DEVICE_BASE"
+    # parameter_units/admittance_units/voltage_setpoint_units always "COMPONENT_BASE"
     # (branch.jl, shunt.jl) -- pu on the component's own base_power (or, for the shunt
-    # admittance fields, DEVICE_MVAR, see below) already, identical in both document
+    # admittance fields, COMPONENT_MVAR, see below) already, identical in both document
     # conventions.
     ("TransformerCircuit", :r) => :skip,
     ("TransformerCircuit", :x) => :skip,
@@ -128,7 +128,7 @@ const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
     # VOLTAGE-family, already-`:skip` branch either way). Static `:skip`, matching
     # `control_limits`.
     ("TransformerCircuit", :controlled_quantity_limits) => :skip,
-    # admittance_units always "DEVICE_MVAR" (shunt.jl) -- PowerSystems' own to_openapi
+    # admittance_units always "COMPONENT_MVAR" (shunt.jl) -- PowerSystems' own to_openapi
     # confirms this is fixed-natural, multiplied by the SYSTEM base in both document
     # conventions (export_handwritten.jl's FixedAdmittance section), not document-unit-
     # system-governed at all (same shape as Area/LoadZone's peak fields).
@@ -138,7 +138,7 @@ const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
     ("SwitchedAdmittance", :admittance_limits) => :skip,
     # parameter_units/dc_voltage_units/admittance_units always "NATURAL_UNITS" for the
     # PSS/E-native LCC/VSC fields (dc_branch.jl) -- fixed ohm/kV/S regardless of the
-    # document's unit_system, the mirror image of the DEVICE_BASE cases above.
+    # document's unit_system, the mirror image of the COMPONENT_BASE cases above.
     ("TwoTerminalLCCLine", :r) => :skip,
     ("TwoTerminalLCCLine", :rectifier_rc) => :skip,
     ("TwoTerminalLCCLine", :rectifier_xc) => :skip,
@@ -191,10 +191,10 @@ function _devicebase_instance_dispatched(key::AbstractString, prop::Symbol)
     verdict = get(_DEVICEBASE_INSTANCE_DISPATCHED, (String(key), prop), nothing)
     if verdict === nothing
         error(
-            "DEVICE_BASE conversion: $key.$prop has an instance-level unit discriminator " *
+            "COMPONENT_BASE conversion: $key.$prop has an instance-level unit discriminator " *
             "not accounted for in _DEVICEBASE_INSTANCE_DISPATCHED — classify it as " *
             ":convert_own, :skip, or :dynamic (see device_base.jl's header) before " *
-            "building a DEVICE_BASE document containing this type",
+            "building a COMPONENT_BASE document containing this type",
         )
     end
     return verdict
@@ -229,7 +229,7 @@ function _devicebase_dynamic(key::AbstractString, prop::Symbol, po)
     quantities = get(_DEVICEBASE_DYNAMIC_QUANTITIES, (key, prop), nothing)
     if quantities === nothing
         error(
-            "DEVICE_BASE conversion: $key.$prop is registered :dynamic with no entry in " *
+            "COMPONENT_BASE conversion: $key.$prop is registered :dynamic with no entry in " *
             "_DEVICEBASE_DYNAMIC_QUANTITIES",
         )
     end
@@ -237,7 +237,7 @@ function _devicebase_dynamic(key::AbstractString, prop::Symbol, po)
     verdict = get(quantities, quantity, nothing)
     if verdict === nothing
         error(
-            "DEVICE_BASE conversion: $key.$prop resolved quantity \"$quantity\", not " *
+            "COMPONENT_BASE conversion: $key.$prop resolved quantity \"$quantity\", not " *
             "accounted for in _DEVICEBASE_DYNAMIC_QUANTITIES[($key, :$prop)]",
         )
     end
@@ -245,7 +245,7 @@ function _devicebase_dynamic(key::AbstractString, prop::Symbol, po)
 end
 
 """
-Classify `key.prop` (PO type `T`) for the DEVICE_BASE pass: `:convert_own` (divide by the
+Classify `key.prop` (PO type `T`) for the COMPONENT_BASE pass: `:convert_own` (divide by the
 component's own `base_power`), `:convert_system` (divide by the document's system base),
 `:dynamic` (resolved per component by [`_devicebase_dynamic`](@ref)), or `:skip`. See this
 file's header for the full rule.
@@ -292,7 +292,7 @@ to classify, rather than a silent skip."""
 function _devicebase_own_base(po, key::AbstractString, prop::Symbol)
     if !hasfield(typeof(po), :base_power)
         error(
-            "DEVICE_BASE conversion: $key.$prop is a power-family field with no own " *
+            "COMPONENT_BASE conversion: $key.$prop is a power-family field with no own " *
             "base_power field and $key is not in _DEVICEBASE_SYSTEM_BASE_TYPES",
         )
     end
@@ -304,17 +304,17 @@ end
 
 Convert every power-family field [`build_openapi_system`](@ref)'s readers wrote in natural
 units into per-unit-on-device-base, in place, when `sys`'s document is
-`unit_system = "DEVICE_BASE"`. A no-op for `"NATURAL_UNITS"`. See this file's header for the
+`unit_system = "COMPONENT_BASE"`. A no-op for `"NATURAL_UNITS"`. See this file's header for the
 field-classification rule and its exceptions.
 """
 function apply_device_base_conversion!(sys::OpenAPISystem)
     doc = get_document(sys)
-    if !PC.uses_per_unit(doc)
+    if !PD.uses_per_unit(doc)
         return sys
     end
-    system_base = PC.get_base_power(doc)
-    for key in PC.component_type_names(doc)
-        components = PC.get_components(doc, key)
+    system_base = PD.get_base_power(doc)
+    for key in PD.component_type_names(doc)
+        components = PD.get_components(doc, key)
         isempty(components) && continue
         T = eltype(components)
         for prop in fieldnames(T)
