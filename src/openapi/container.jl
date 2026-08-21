@@ -87,39 +87,48 @@ function add_component!(sys::OpenAPISystem, component::T) where {T <: OpenAPI.AP
 end
 
 """
-Record a supplemental attribute and the entity it describes.
+Record a supplemental attribute and the component it describes.
 
 Plant-family groupings and service memberships are recorded in their own tables, not this
 one — see `add_service_association!` below — so this parser only ever emits a plain
-attribute row.
+attribute row. `component_id`'s type name is resolved from the document itself, so the
+caller need not know it.
 """
 function add_supplemental_attribute!(
     sys::OpenAPISystem,
     attribute::OpenAPI.APIModel,
-    entity_id::Int,
+    component_id::Int,
 )
-    PD.add_supplemental_attribute!(get_document(sys), attribute, entity_id)
+    PD.add_supplemental_attribute!(get_document(sys), attribute, component_id)
     return
 end
 
 """
-Describe `entity_id` with an attribute [`add_supplemental_attribute!`](@ref) already
-recorded — one attribute shared across several entities takes one row per extra entity.
+Describe `component_id` with an attribute [`add_supplemental_attribute!`](@ref) already
+recorded — one attribute shared across several components takes one row per extra
+component.
+
+`component_type` names `component_id`'s type (e.g. `"ACBus"`); unlike
+[`add_supplemental_attribute!`](@ref), which resolves it by scanning the document for the
+first component, the caller passes it directly here since it already knows it from having
+looked `component_id` up.
 
 `attribute_type` is derived from the attribute rather than passed in, matching what
-`add_supplemental_attribute!` writes for the first entity; a literal would let the two
+`add_supplemental_attribute!` writes for the first component; a literal would let the two
 disagree.
 """
 function add_supplemental_attribute_association!(
     sys::OpenAPISystem,
     attribute::OpenAPI.APIModel,
-    entity_id::Int,
+    component_id::Int,
+    component_type::AbstractString,
 )
     push!(
         get_document(sys).supplemental_attribute_associations,
         PC.SupplementalAttributeAssociation(;
+            component_id = component_id,
+            component_type = String(component_type),
             attribute_id = get_value(attribute, :id),
-            entity_id = entity_id,
             attribute_type = string(nameof(typeof(attribute))),
         ),
     )

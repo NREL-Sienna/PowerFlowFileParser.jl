@@ -78,7 +78,8 @@ function _new_impedance_correction_attribute!(
 end
 
 """
-Attach the `ImpedanceCorrectionData` for `(d[table_key], winding)` to `transformer_id`,
+Attach the `ImpedanceCorrectionData` for `(d[table_key], winding)` to `transformer_id`
+(a `transformer_type` component: `"TwoWindingTransformer"` or `"ThreeWindingTransformer"`),
 if `d[table_key]` names a table `curves` has an entry for. `table_key` absent, or naming
 table `0` (PSS/E's "no correction table" default, per `pti.jl`'s TAB1/TAB2/TAB3
 defaults), is a no-op — matching PSCB's `_attach_single_ict!`, which only ever finds a
@@ -94,6 +95,7 @@ function _attach_impedance_correction!(
     table_key::AbstractString,
     winding::AbstractString,
     transformer_id::Int,
+    transformer_type::AbstractString,
 )
     if isempty(curves) || !haskey(d, table_key)
         return
@@ -105,7 +107,9 @@ function _attach_impedance_correction!(
     key = (table_number, winding)
     if haskey(cache, key)
         # The attribute already exists, so only the association row is new.
-        add_supplemental_attribute_association!(sys, cache[key], transformer_id)
+        add_supplemental_attribute_association!(
+            sys, cache[key], transformer_id, transformer_type,
+        )
     else
         cache[key] =
             _new_impedance_correction_attribute!(sys, curves, table_number, winding,
@@ -142,7 +146,7 @@ function read_substations!(sys::OpenAPISystem, data::Dict; kwargs...)
         set_value!(attribute, :grounding_resistance, d["grounding_resistance"], "ohm")
         add_supplemental_attribute!(sys, attribute, first(bus_ids))
         for bus_id in Iterators.drop(bus_ids, 1)
-            add_supplemental_attribute_association!(sys, attribute, bus_id)
+            add_supplemental_attribute_association!(sys, attribute, bus_id, "ACBus")
         end
     end
     return
@@ -179,6 +183,7 @@ function read_impedance_corrections!(sys::OpenAPISystem, data::Dict; kwargs...)
         transformer_id = get_id(reg, "TwoWindingTransformer", name)
         _attach_impedance_correction!(
             sys, cache, curves, d, "correction_table", "TR2W_WINDING", transformer_id,
+            "TwoWindingTransformer",
         )
     end
 
@@ -197,15 +202,15 @@ function read_impedance_corrections!(sys::OpenAPISystem, data::Dict; kwargs...)
         transformer_id = get_id(reg, "ThreeWindingTransformer", name)
         _attach_impedance_correction!(
             sys, cache, curves, d, "primary_correction_table", "PRIMARY_WINDING",
-            transformer_id,
+            transformer_id, "ThreeWindingTransformer",
         )
         _attach_impedance_correction!(
             sys, cache, curves, d, "secondary_correction_table", "SECONDARY_WINDING",
-            transformer_id,
+            transformer_id, "ThreeWindingTransformer",
         )
         _attach_impedance_correction!(
             sys, cache, curves, d, "tertiary_correction_table", "TERTIARY_WINDING",
-            transformer_id,
+            transformer_id, "ThreeWindingTransformer",
         )
     end
     return

@@ -83,7 +83,8 @@ end
 @testset "supplemental attribute associations serialize as id pairs" begin
     doc = _round_trip(_serialize_test_system())
     assoc = only(doc["supplemental_attribute_associations"])
-    @test assoc["entity_id"] == 1
+    @test assoc["component_id"] == 1
+    @test assoc["component_type"] == "ACBus"
     @test assoc["attribute_type"] == "GeographicInfo"
 end
 

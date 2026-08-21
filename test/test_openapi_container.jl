@@ -69,7 +69,8 @@ end
 
     assoc = only(PFP.get_document(sys).supplemental_attribute_associations)
     @test PFP.get_value(assoc, :attribute_id) == 2
-    @test PFP.get_value(assoc, :entity_id) == 1
+    @test PFP.get_value(assoc, :component_id) == 1
+    @test PFP.get_value(assoc, :component_type) == "ACBus"
     @test only(PFP.get_supplemental_attributes(sys, "GeographicInfo")) === geo
 end
 

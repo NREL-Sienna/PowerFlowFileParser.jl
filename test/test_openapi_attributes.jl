@@ -31,7 +31,10 @@
     shared_id = PFP.get_value(shared, :id)
     shared_rows = [a for a in associations if PFP.get_value(a, :attribute_id) == shared_id]
     @test length(shared_rows) == 2
-    entity_ids = sort([PFP.get_value(a, :entity_id) for a in shared_rows])
+    @test all(
+        PFP.get_value(a, :component_type) == "ThreeWindingTransformer" for a in shared_rows
+    )
+    component_ids = sort([PFP.get_value(a, :component_id) for a in shared_rows])
     primary_3w = PFP.get_value(
         only(
             t for t in PFP.get_components(sys, "ThreeWindingTransformer") if
@@ -46,7 +49,7 @@
         ),
         :id,
     )
-    @test entity_ids == sort([primary_3w, other_3w])
+    @test component_ids == sort([primary_3w, other_3w])
 end
 
 @testset "ImpedanceCorrectionData: table_number/curve/control_mode hand-derived from a single 2W table" begin
@@ -95,7 +98,8 @@ end
         a for a in doc.supplemental_attribute_associations if
         PFP.get_value(a, :attribute_id) == PFP.get_value(ict, :id),
     )
-    @test PFP.get_value(row, :entity_id) == PFP.get_value(two_w, :id)
+    @test PFP.get_value(row, :component_id) == PFP.get_value(two_w, :id)
+    @test PFP.get_value(row, :component_type) == "TwoWindingTransformer"
     @test PFP.get_value(row, :attribute_type) == "ImpedanceCorrectionData"
     # A plain attribute link emits nothing in the plant-family or service tables. This used
     # to assert `group_index`/`role` were unset on the row itself; those columns are gone
