@@ -98,6 +98,17 @@ end
     @test blocked_dcline["r"] ≈ 5.0 / (200.0^2 / 100.0)
 end
 
+@testset "PSSE VSC line captures each converter's own AC bus base_kv" begin
+    file = joinpath(@__DIR__, "fixtures", "synthetic_v35_vsc_line.raw")
+    pm_data = PowerModelsData(file).data
+    vscline = only(values(pm_data["vscline"]))
+    @test vscline["f_bus"] == 1
+    @test vscline["t_bus"] == 3
+    @test vscline["base_voltage_from"] == 200.0
+    @test vscline["base_voltage_to"] == 138.0
+    @test vscline["rated_dc_voltage"] == 150.0
+end
+
 @testset "PSSE ISW area-slack flag" begin
     file = joinpath(@__DIR__, "fixtures", "v35_area_slack_variants.raw")
     pm_data = @test_logs(

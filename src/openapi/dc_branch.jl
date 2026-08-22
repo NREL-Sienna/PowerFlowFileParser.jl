@@ -176,8 +176,9 @@ bus's own base voltage — never kV. The `DC_POWER`/`AC_REACTIVE_POWER` branches
 fixed units (`MW`/`1`) and ignore this discriminator, so setting it unconditionally is safe
 regardless of which sides actually control voltage.
 
-No fixture on hand carries a `vscline` entry; this maker is exercised by synthetic dicts
-in the test suite.
+`psse.jl` also captures each converter's own AC bus base kV as `base_voltage_from`/
+`base_voltage_to`, threaded onto the document as `rated_ac_voltage_from`/
+`rated_ac_voltage_to` — the AC-side counterpart of `rated_dc_voltage`.
 """
 function make_vscline!(
     sys::OpenAPISystem,
@@ -222,6 +223,7 @@ function make_vscline!(
         set_value!(component, :ac_control_from, "AC_REACTIVE_POWER")
         set_value!(component, :ac_setpoint_from, d["ac_setpoint_from"], "1")
     end
+    set_value!(component, :rated_ac_voltage_from, d["base_voltage_from"], "kV")
     set_value!(
         component,
         :converter_loss_from,
@@ -257,6 +259,7 @@ function make_vscline!(
         set_value!(component, :ac_control_to, "AC_REACTIVE_POWER")
         set_value!(component, :ac_setpoint_to, d["ac_setpoint_to"], "1")
     end
+    set_value!(component, :rated_ac_voltage_to, d["base_voltage_to"], "kV")
     set_value!(
         component,
         :converter_loss_to,

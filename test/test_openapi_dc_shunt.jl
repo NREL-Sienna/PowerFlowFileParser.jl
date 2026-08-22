@@ -213,6 +213,7 @@ function _synthetic_vscline_dict()
         "power_factor_weighting_fraction_from" => 1.0,
         "power_factor_weighting_fraction_to" => 1.0,
         "rated_dc_voltage" => 100.0,
+        "base_voltage_from" => 138.0, "base_voltage_to" => 138.0,
     )
 end
 
@@ -255,6 +256,20 @@ end
     @test PFP.get_value(vsc, :g) ≈ 1.0 / 0.5
     @test PFP.get_value(vsc, :max_dc_current_from) == 100.0
     @test PFP.get_value(vsc, :rated_dc_voltage) == 100.0
+    @test PFP.get_value(vsc, :rated_ac_voltage_from) == 138.0
+    @test PFP.get_value(vsc, :rated_ac_voltage_to) == 138.0
+end
+
+@testset "TwoTerminalVSCLine: build_openapi_system threads each converter's AC base kV onto rated_ac_voltage_from/to" begin
+    # The AC-side base kV (base_voltage_from/base_voltage_to, see test_parse_psse.jl) is
+    # captured into the pm dict and threaded onto the document as
+    # rated_ac_voltage_from/to (see make_vscline!'s docstring).
+    file = joinpath(@__DIR__, "fixtures", "synthetic_v35_vsc_line.raw")
+    sys = PFP.build_openapi_system(PFP.PowerModelsData(file))
+    vsc = only(PFP.get_components(sys, "TwoTerminalVSCLine"))
+    @test PFP.get_value(vsc, :rated_dc_voltage) == 150.0
+    @test PFP.get_value(vsc, :rated_ac_voltage_from) == 200.0
+    @test PFP.get_value(vsc, :rated_ac_voltage_to) == 138.0
 end
 
 @testset "TwoTerminalVSCLine: make_vscline! stores DC_VOLTAGE/AC_VOLTAGE setpoints as COMPONENT_BASE pu" begin

@@ -2066,6 +2066,10 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             # VSC intended to be one or bi-directional?
             sub_data["f_bus"] = from_bus["IBUS"]
             sub_data["t_bus"] = to_bus["IBUS"]
+            sub_data["base_voltage_from"] =
+                _get_bus_value(sub_data["f_bus"], "base_kv", pm_data)
+            sub_data["base_voltage_to"] =
+                _get_bus_value(sub_data["t_bus"], "base_kv", pm_data)
             if pm_data["has_isolated_type_buses"]
                 push!(pm_data["connected_buses"], sub_data["f_bus"])
                 push!(pm_data["connected_buses"], sub_data["t_bus"])
