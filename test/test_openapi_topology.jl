@@ -175,14 +175,14 @@ end
     @test ext["PTOL"] == area1_d["tol_interchange"]
 end
 
-@testset "_area_interchange_ext returns nothing without a source_type/area_interchange/matching area_number" begin
+@testset "_has_area_interchange is false without a source_type/area_interchange/matching area_number" begin
     pm_data =
         PFP.PowerModelsData(joinpath(@__DIR__, "fixtures", "v35_area_slack_variants.raw"))
     data = pm_data.data
-    @test isnothing(PFP._area_interchange_ext(data, "999"))  # no area_number == "999"
-    @test isnothing(PFP._area_interchange_ext(Dict{String, Any}(), "1"))  # no source_type
+    @test !PFP._has_area_interchange(data, "999")  # no area_number == "999"
+    @test !PFP._has_area_interchange(Dict{String, Any}(), "1")  # no source_type
     matpower_data = merge(data, Dict{String, Any}("source_type" => "matpower"))
-    @test isnothing(PFP._area_interchange_ext(matpower_data, "1"))  # oracle-matched: pti only
+    @test !PFP._has_area_interchange(matpower_data, "1")  # oracle-matched: pti only
 end
 
 @testset "_bustype_name rejects a code outside PowerModels' 1-4 range" begin

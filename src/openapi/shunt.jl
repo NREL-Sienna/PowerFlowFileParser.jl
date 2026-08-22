@@ -165,8 +165,7 @@ end
 """
 Create one `FixedAdmittance` per `data["shunt"]` entry, one `SwitchedAdmittance` per
 `data["switched_shunt"]` entry, and one `FACTSControlDevice` per `data["facts"]` entry.
-Ported from PSCB's `read_shunt!`/`read_switched_shunt!`/`read_facts!` (:1935-2036), run
-together as one stage.
+Ported from PSCB's `read_shunt!`/`read_switched_shunt!`/`read_facts!`, run together.
 
 Deviates from the oracle in one place: PSCB's `read_facts!` reads its name formatter under
 `:bus_name_formatter`, the same kwarg `read_bus!` uses — a copy-paste artifact, since a

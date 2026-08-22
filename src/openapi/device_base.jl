@@ -308,13 +308,12 @@ units into per-unit-on-device-base, in place, when `sys`'s document is
 field-classification rule and its exceptions.
 """
 function apply_device_base_conversion!(sys::OpenAPISystem)
-    doc = get_document(sys)
-    if !PD.uses_per_unit(doc)
+    if !uses_per_unit(sys)
         return sys
     end
-    system_base = PD.get_base_power(doc)
-    for key in PD.component_type_names(doc)
-        components = PD.get_components(doc, key)
+    system_base = get_base_power(sys)
+    for key in component_type_names(sys)
+        components = get_components(sys, key)
         isempty(components) && continue
         T = eltype(components)
         for prop in fieldnames(T)

@@ -10,6 +10,21 @@
 # `data["vscline"]` and `data["interarea_transfer"]` are NOT native PowerModels sections;
 # see the per-maker docstrings below for how PFFP's own `psse.jl` pre-scales their fields.
 
+"""A linear `TwoTerminalLoss` curve from a pm dict's `loss0`/`loss1` fields, shared by
+`TwoTerminalLCCLine` and `TwoTerminalGenericHVDCLine`."""
+function _two_terminal_loss(d::Dict)
+    return PC.TwoTerminalLoss(
+        PC.InputOutputCurve(;
+            function_data = PC.InputOutputCurveFunctionData(
+                PC.LinearFunctionData(;
+                    proportional_term = d["loss1"],
+                    constant_term = d["loss0"],
+                ),
+            ),
+        ),
+    )
+end
+
 """Two-terminal LCC HVDC line (PSS/E)."""
 function make_lcc_line!(
     sys::OpenAPISystem,
@@ -74,20 +89,7 @@ function make_lcc_line!(
     set_value!(component, :inverter_extinction_angle, d["inverter_extinction_angle"], "rad")
     set_value!(component, :inverter_capacitor_reactance, d["inverter_capacitor_reactance"],
         "ohm")
-    set_value!(
-        component,
-        :loss,
-        PC.TwoTerminalLoss(
-            PC.InputOutputCurve(;
-                function_data = PC.InputOutputCurveFunctionData(
-                    PC.LinearFunctionData(;
-                        proportional_term = d["loss1"],
-                        constant_term = d["loss0"],
-                    ),
-                ),
-            ),
-        ),
-    )
+    set_value!(component, :loss, _two_terminal_loss(d))
     set_value!(component, :base_power, sys_mbase, "MVA")
     add_component!(sys, component)
     set_component_ext!(sys, component, get(d, "ext", Dict{String, Any}()))
@@ -119,20 +121,7 @@ function make_generic_hvdc_line!(
         (min = d["qminf"] * sys_mbase, max = d["qmaxf"] * sys_mbase), "MVAr")
     set_value!(component, :reactive_power_limits_to,
         (min = d["qmint"] * sys_mbase, max = d["qmaxt"] * sys_mbase), "MVAr")
-    set_value!(
-        component,
-        :loss,
-        PC.TwoTerminalLoss(
-            PC.InputOutputCurve(;
-                function_data = PC.InputOutputCurveFunctionData(
-                    PC.LinearFunctionData(;
-                        proportional_term = d["loss1"],
-                        constant_term = d["loss0"],
-                    ),
-                ),
-            ),
-        ),
-    )
+    set_value!(component, :loss, _two_terminal_loss(d))
     set_value!(component, :base_power, sys_mbase, "MVA")
     add_component!(sys, component)
     return
@@ -166,7 +155,7 @@ end
 
 """
 Voltage-source-converter HVDC line (PSS/E `VOLTAGE SOURCE CONVERTER`). Ported from
-PSCB's `make_vscline` (:1820-1874).
+PSCB's `make_vscline`.
 
 Every numeric field `psse.jl` derives from a per-bridge PSS/E record (`rating`/
 `rating_from`/`rating_to`, `active_power_limits_from`/`to`, `reactive_power_limits_from`/
@@ -331,7 +320,7 @@ end
 
 """
 Create one `TwoTerminalVSCLine` per `data["vscline"]` entry. Ported from PSCB's
-`read_vscline!` (:1876-1902), including the undefined-bus warn-and-skip (a real, already
+`read_vscline!`, including the undefined-bus warn-and-skip (a real, already
 logged skip in the oracle, ported as-is — not one of this reader's own silent skips).
 """
 function read_vsc_lines!(sys::OpenAPISystem, data::Dict; kwargs...)
@@ -360,10 +349,10 @@ end
 
 """
 Create one `AreaInterchange` per `data["interarea_transfer"]` entry. Ported from the
-`interarea_transfer` block inside PSCB's `read_bus!` (:481-529), grouped here with the
-other DC/interchange readers rather than with `topology.jl`'s bus reader.
+`interarea_transfer` block inside PSCB's `read_bus!`, grouped here with the other
+DC/interchange readers rather than with `topology.jl`'s bus reader.
 
-# Bug-compatible with PSCB power_models_data.jl:509 — `active_power_flow =
+# Bug-compatible with PSCB — `active_power_flow =
 d["power_transfer"]` assigns PFFP's raw `PTRAN` value (already natural MW, since
 `interarea_transfer` is not a native PowerModels section) into a field PSY declares `SU`,
 with no division by `sys_mbase` first, so a real `get_active_power_flow(interchange,
@@ -407,7 +396,7 @@ function read_area_interchanges!(sys::OpenAPISystem, data::Dict; kwargs...)
         set_value!(component, :id, register!(reg, "AreaInterchange", name))
         set_value!(component, :name, name)
         set_value!(component, :available, true)
-        # Bug-compatible with PSCB power_models_data.jl:509 — see docstring.
+        # Bug-compatible with PSCB — see docstring.
         set_value!(component, :active_power_flow, d["power_transfer"] * sys_mbase, "MW")
         set_value!(component, :from_area, get_id(reg, "Area", area_from_name))
         set_value!(component, :to_area, get_id(reg, "Area", area_to_name))

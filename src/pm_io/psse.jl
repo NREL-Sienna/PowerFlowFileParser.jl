@@ -588,9 +588,9 @@ function _psse2pm_area_slack!(pm_data::Dict)
         end
         isw_bus = pm_data["bus"][isw]
         bus_type = isw_bus["bus_type"]
-        if !(bus_type in (2, 3))
+        if !(bus_type in (PM_BUS_TYPE_PV, PM_BUS_TYPE_REF))
             moved_to = get(
-                get(isw_bus, "ext", Dict{String, Any}()),
+                get(() -> Dict{String, Any}(), isw_bus, "ext"),
                 "nb_bus_type_moved_to",
                 nothing,
             )
@@ -599,9 +599,9 @@ function _psse2pm_area_slack!(pm_data::Dict)
                 bus_type = isw_bus["bus_type"]
             end
         end
-        if bus_type == 2
+        if bus_type == PM_BUS_TYPE_PV
             isw_bus["area_slack"] = true
-        elseif bus_type == 3
+        elseif bus_type == PM_BUS_TYPE_REF
             @debug "Area $area_number interchange-control bus (ISW=$isw) is the system REF bus"
         else
             @warn "Area $area_number interchange-control bus (ISW=$isw) has bus_type $bus_type; expected PV (2) or REF (3). Skipping area-slack assignment."
@@ -812,7 +812,7 @@ function _psse2pm_load!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
                     "bus" => sub_data["load_bus"],
                     "pg" => dgenp,
                     "qg" => dgenq,
-                    "status" => dgenm == 0 ? 0 : 1,
+                    "status" => Int(!iszero(dgenm)),
                     "source_id" => [
                         "distributed_generation",
                         bus_number,

@@ -46,15 +46,6 @@ function _get_rating(name::AbstractString, d::Dict, key::AbstractString)
     return d[key]
 end
 
-"""A `_get_rating`-style optional value (`nothing` when the pm dict carries no such key),
-scaled onto the circuit's own `base_power`."""
-function _scaled_or_nothing(value, base_power::Real)
-    if isnothing(value)
-        return nothing
-    end
-    return value * base_power
-end
-
 """Bus name and ISOLATED status by pm bus number. Shared by the branch/transformer/
 dc-line/shunt readers, all of which resolve endpoints by pm bus number rather than by
 document id."""
@@ -315,9 +306,9 @@ function make_line!(
     set_value!(line, :b, (from = d["b_fr"], to = d["b_to"]), "pu")
     set_value!(line, :rating, _get_rating(name, d, "rate_a") * sys_mbase, "MVA")
     set_optional_value!(line, :rating_b,
-        _scaled_or_nothing(_get_rating(name, d, "rate_b"), sys_mbase), "MVA")
+        _natural_value(_get_rating(name, d, "rate_b"), sys_mbase), "MVA")
     set_optional_value!(line, :rating_c,
-        _scaled_or_nothing(_get_rating(name, d, "rate_c"), sys_mbase), "MVA")
+        _natural_value(_get_rating(name, d, "rate_c"), sys_mbase), "MVA")
     set_value!(line, :angle_limits, (min = d["angmin"], max = d["angmax"]), "rad")
     add_component!(sys, line)
     set_component_ext!(sys, line, get(d, "ext", Dict{String, Any}()))
@@ -325,7 +316,7 @@ function make_line!(
 end
 
 """A zero-impedance pm branch, converted to a `DiscreteControlledACBranch` of type
-`SWITCH`. Ported from PSCB's `_make_switch_from_zero_impedance_line` (:1270-1301) — a
+`SWITCH`. Ported from PSCB's `_make_switch_from_zero_impedance_line` — a
 real PSS/E data shape (a modeled switching device recorded as a zero-r/x branch), not one
 of the four named bug-compatible sites."""
 function make_switch_from_zero_impedance_branch!(
@@ -370,7 +361,7 @@ function _branch_type_matpower(d::Dict)
     shift = d["shift"]
     is_transformer = d["transformer"]
     if !is_transformer
-        is_transformer = (tap != 0.0 && tap != 1.0) || shift != 0.0
+        is_transformer = (!iszero(tap) && tap != 1.0) || !iszero(shift)
     end
     if is_transformer
         return :transformer
@@ -385,7 +376,7 @@ function _branch_type_psse(d::Dict, name::AbstractString)
     is_transformer = d["transformer"]
     tap = d["tap"]
     if !is_transformer
-        if tap != 0.0 && tap != 1.0
+        if !iszero(tap) && tap != 1.0
             @warn "Transformer $name has tap ratio $tap, which is not 0.0 or 1.0; this is not a valid value for a Line. Parsing entry as a Transformer"
         else
             return :line
@@ -395,7 +386,7 @@ function _branch_type_psse(d::Dict, name::AbstractString)
 end
 
 """Two-winding transformer + its `TransformerCircuit`. Ported from PSCB's
-`make_transformer_2w` (:1503-1553). See the file header for the rating/flow base
+`make_transformer_2w`. See the file header for the rating/flow base
 (circuit's own `base_power`, not `sys_mbase`) and the magnetizing shunt basis
 (`g_fr`/`b_fr` are already device-base pu for PSS/E-origin data; identical to system base
 for MATPOWER, where `base_power == sys_mbase` unconditionally)."""
@@ -420,9 +411,9 @@ function make_transformer_2w!(
         tap_key = "tap", angle_key = "shift", control_suffix = 1,
         available = available,
         r = d["br_r"], x = d["br_x"],
-        rating = _scaled_or_nothing(rate_a, base_power),
-        rating_b = _scaled_or_nothing(rate_b, base_power),
-        rating_c = _scaled_or_nothing(rate_c, base_power),
+        rating = _natural_value(rate_a, base_power),
+        rating_b = _natural_value(rate_b, base_power),
+        rating_c = _natural_value(rate_c, base_power),
         base_power = base_power,
         base_voltage_primary = _base_voltage_or_nothing(d["base_voltage_from"]),
         base_voltage_secondary = _base_voltage_or_nothing(d["base_voltage_to"]),
@@ -578,7 +569,7 @@ end
 
 """
 Create one `ThreeWindingTransformer` per `data["3w_transformer"]` entry. Ported from
-PSCB's `read_3w_transformer!` (:1685-1721). `data["3w_transformer"]`'s star bus is a
+PSCB's `read_3w_transformer!`. `data["3w_transformer"]`'s star bus is a
 regular pm dict bus entry (already an `ACBus` by the time this reader runs, via
 `read_bus!`), not created here.
 """

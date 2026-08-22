@@ -42,7 +42,7 @@ end
 
 """
 A switch, breaker, or generic connector as a `DiscreteControlledACBranch`. Ported from
-PSCB's `make_switch_breaker` (:1349-1363). `base_power` is set explicitly here because
+PSCB's `make_switch_breaker`. `base_power` is set explicitly here because
 the oracle's constructor leaves it to PSY's `add_component!`, which back-fills the system
 base for every `BasePowerKind::SystemBasePower` type.
 """

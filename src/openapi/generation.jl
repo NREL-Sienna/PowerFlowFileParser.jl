@@ -172,6 +172,23 @@ function _generator_ext(pm_gen::Dict)
     return extras
 end
 
+"""Device base, base conversion factor, and the active/reactive power limits, rating, and
+ramp limits every per-unit generator maker derives from them — shared by
+`make_thermal_generator!` and `_make_hydro_dispatch_body!`, which compute this set
+identically."""
+function _gen_base_and_limits(pm_gen::Dict, gen_name::AbstractString, sys_mbase::Float64)
+    mbase = _device_base_power(pm_gen, gen_name, sys_mbase)
+    base_conversion = sys_mbase / mbase
+    active_power_limits =
+        (min = pm_gen["pmin"] * base_conversion, max = pm_gen["pmax"] * base_conversion)
+    reactive_power_limits =
+        (min = pm_gen["qmin"] * base_conversion, max = pm_gen["qmax"] * base_conversion)
+    rating = calculate_gen_rating(pm_gen["pmax"], pm_gen["qmax"], base_conversion)
+    ramp_limits = calculate_ramp_limit(pm_gen, gen_name)
+    return mbase, base_conversion, active_power_limits, reactive_power_limits, rating,
+    ramp_limits
+end
+
 """Thermal generator; the cost branch lives in `make_thermal_cost` (cost.jl)."""
 function make_thermal_generator!(
     sys::OpenAPISystem,
@@ -181,16 +198,9 @@ function make_thermal_generator!(
     gen_name::AbstractString,
     sys_mbase::Float64,
 )
-    mbase = _device_base_power(pm_gen, gen_name, sys_mbase)
-    base_conversion = sys_mbase / mbase
+    mbase, base_conversion, active_power_limits, reactive_power_limits, rating,
+    ramp_limits = _gen_base_and_limits(pm_gen, gen_name, sys_mbase)
     _is_likely_motor_load(pm_gen, gen_name)
-
-    active_power_limits =
-        (min = pm_gen["pmin"] * base_conversion, max = pm_gen["pmax"] * base_conversion)
-    reactive_power_limits =
-        (min = pm_gen["qmin"] * base_conversion, max = pm_gen["qmax"] * base_conversion)
-    rating = calculate_gen_rating(pm_gen["pmax"], pm_gen["qmax"], base_conversion)
-    ramp_limits = calculate_ramp_limit(pm_gen, gen_name)
     extras = _generator_ext(pm_gen)
 
     component = PO.ThermalStandard()
@@ -233,15 +243,8 @@ function _make_hydro_dispatch_body!(
     gen_name::AbstractString,
     sys_mbase::Float64,
 )
-    mbase = _device_base_power(pm_gen, gen_name, sys_mbase)
-    base_conversion = sys_mbase / mbase
-
-    active_power_limits =
-        (min = pm_gen["pmin"] * base_conversion, max = pm_gen["pmax"] * base_conversion)
-    reactive_power_limits =
-        (min = pm_gen["qmin"] * base_conversion, max = pm_gen["qmax"] * base_conversion)
-    rating = calculate_gen_rating(pm_gen["pmax"], pm_gen["qmax"], base_conversion)
-    ramp_limits = calculate_ramp_limit(pm_gen, gen_name)
+    mbase, base_conversion, active_power_limits, reactive_power_limits, rating,
+    ramp_limits = _gen_base_and_limits(pm_gen, gen_name, sys_mbase)
 
     component = PO.HydroDispatch()
     set_value!(component, :id, register!(reg, "HydroDispatch", gen_name))
@@ -268,7 +271,7 @@ function _make_hydro_dispatch_body!(
 end
 
 """Hydro generator without a reservoir (`fuel: HYDRO, type: ROR`). Ported from PSCB's
-`make_hydro_dispatch` (:774-812)."""
+`make_hydro_dispatch`."""
 make_hydro_dispatch!(sys::OpenAPISystem, reg::IdRegistry, bus_id::Int, pm_gen::Dict,
     gen_name::AbstractString, sys_mbase::Float64) =
     _make_hydro_dispatch_body!(sys, reg, bus_id, pm_gen, gen_name, sys_mbase)
@@ -277,7 +280,7 @@ make_hydro_dispatch!(sys::OpenAPISystem, reg::IdRegistry, bus_id::Int, pm_gen::D
 Hydro generator with a reservoir (`fuel: HYDRO, type: HYDRO`/`type: null`), mapped to the
 `HydroTurbine` generator class by `generator_mapping_pm.yaml`.
 
-# Bug-compatible with PSCB power_models_data.jl:814-852 — PowerModels carries no storage
+# Bug-compatible with PSCB — PowerModels carries no storage
 parameters for a generator ("No way to define storage parameters for gens in PM", PSCB's
 own comment), so `make_hydro_reservoir` there produces a plain `HydroDispatch`, silently
 dropping the reservoir, instead of a `HydroTurbine`/`HydroReservoir` pair. Fix tracked
@@ -290,7 +293,7 @@ make_hydro_reservoir!(sys::OpenAPISystem, reg::IdRegistry, bus_id::Int, pm_gen::
 """
 Curtailable renewable generator.
 
-# Bug-compatible with PSCB power_models_data.jl:872,885 — `calculate_gen_rating` already
+# Bug-compatible with PSCB — `calculate_gen_rating` already
 multiplies by `base_conversion`; PSCB's `RenewableDispatch(...)` call then multiplies its
 own already-converted `rating` local by `base_conversion` a second time, so the stored
 device-base-pu rating carries `base_conversion^2`. Fix tracked upstream; not fixed here.
@@ -314,7 +317,7 @@ function make_renewable_dispatch!(
         @warn "rating is larger than base power for $gen_name, setting to $mbase"
         rating = mbase
     end
-    # Bug-compatible with PSCB power_models_data.jl:885 — `rating` above is already
+    # Bug-compatible with PSCB — `rating` above is already
     # device-base per-unit (calculate_gen_rating applied `base_conversion` once); this
     # second multiply is the double-application the docstring names.
     rating = rating * base_conversion
@@ -408,7 +411,7 @@ end
 """
 Generic battery storage from a `data["storage"]` entry.
 
-# Bug-compatible with PSCB power_models_data.jl:944,951 — `rating` and `base_power` are
+# Bug-compatible with PSCB — `rating` and `base_power` are
 both assigned the raw `"thermal_rating"` value, itself PowerModels system per-unit and
 never converted. Every other field in this file uses the component's own base to reach
 natural units; here that base *is* the same unconverted `thermal_rating` value, so
@@ -613,11 +616,10 @@ end
 Create one generator per `data["gen"]` entry and one storage device per
 `data["storage"]` entry.
 
-Ported from PSCB's `read_gen!` (:1141-1197) and `read_storage!` (:2038-2060), run
-together since both populate injector components and the sub-task brief groups them as
-one stage. `data["gen"]` must exist (mirrors `read_loads!`'s stance on `data["load"]`);
-`data["storage"]` is genuinely optional — plain Matpower cases never carry one — so its
-absence is not an error.
+Ported from PSCB's `read_gen!` and `read_storage!`, run together since both populate
+injector components. `data["gen"]` must exist (mirrors `read_loads!`'s stance on
+`data["load"]`); `data["storage"]` is genuinely optional — plain Matpower cases never
+carry one — so its absence is not an error.
 """
 function read_generation!(sys::OpenAPISystem, data::Dict; kwargs...)
     if !haskey(data, "gen")

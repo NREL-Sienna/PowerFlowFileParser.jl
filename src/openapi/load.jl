@@ -5,7 +5,7 @@
 # documents. Every MW/MVAr field this file writes is `raw_pu * base_power` before
 # `set_value!` — mirroring topology.jl's `_zone_peak_loads`, not a PSCB peculiarity.
 #
-# `make_interruptible_powerload` (PSCB :534-553) is not ported: `read_loads!`'s own
+# `make_interruptible_powerload` (PSCB) is not ported: `read_loads!`'s own
 # if/elseif/else never calls it, so it is unreachable dead code in the oracle.
 
 """
@@ -53,6 +53,25 @@ function _set_zip_fields!(component, d::Dict, base_power::Float64)
     return
 end
 
+"""Id, name, availability, bus, and base power — the identity fields every load maker
+below sets identically, before its own type-specific fields."""
+function _set_load_identity!(
+    load,
+    reg::IdRegistry,
+    type_name::AbstractString,
+    name::AbstractString,
+    bus_id::Int,
+    status,
+    base_power::Float64,
+)
+    set_value!(load, :id, register!(reg, type_name, name))
+    set_value!(load, :name, name)
+    set_value!(load, :available, Bool(status))
+    set_value!(load, :bus, bus_id)
+    set_value!(load, :base_power, base_power, "MVA")
+    return
+end
+
 function _make_standard_load!(
     sys::OpenAPISystem,
     reg::IdRegistry,
@@ -62,11 +81,7 @@ function _make_standard_load!(
     base_power::Float64,
 )
     load = PO.StandardLoad()
-    set_value!(load, :id, register!(reg, "StandardLoad", name))
-    set_value!(load, :name, name)
-    set_value!(load, :available, Bool(d["status"]))
-    set_value!(load, :bus, bus_id)
-    set_value!(load, :base_power, base_power, "MVA")
+    _set_load_identity!(load, reg, "StandardLoad", name, bus_id, d["status"], base_power)
     set_value!(load, :conformity, _conformity_string(Int(d["conformity"])))
     _set_zip_fields!(load, d, base_power)
     add_component!(sys, load)
@@ -82,11 +97,8 @@ function _make_interruptible_standardload!(
     base_power::Float64,
 )
     load = PO.InterruptibleStandardLoad()
-    set_value!(load, :id, register!(reg, "InterruptibleStandardLoad", name))
-    set_value!(load, :name, name)
-    set_value!(load, :available, Bool(d["status"]))
-    set_value!(load, :bus, bus_id)
-    set_value!(load, :base_power, base_power, "MVA")
+    _set_load_identity!(load, reg, "InterruptibleStandardLoad", name, bus_id, d["status"],
+        base_power)
     set_value!(load, :operation_cost, make_load_cost())
     set_value!(load, :conformity, _conformity_string(Int(d["conformity"])))
     _set_zip_fields!(load, d, base_power)
@@ -103,15 +115,11 @@ function _make_power_load!(
     base_power::Float64,
 )
     load = PO.PowerLoad()
-    set_value!(load, :id, register!(reg, "PowerLoad", name))
-    set_value!(load, :name, name)
-    set_value!(load, :available, Bool(d["status"]))
-    set_value!(load, :bus, bus_id)
+    _set_load_identity!(load, reg, "PowerLoad", name, bus_id, d["status"], base_power)
     set_value!(load, :active_power, d["pd"] * base_power, "MW")
     set_value!(load, :reactive_power, d["qd"] * base_power, "MVAr")
     set_value!(load, :max_active_power, d["pd"] * base_power, "MW")
     set_value!(load, :max_reactive_power, d["qd"] * base_power, "MVAr")
-    set_value!(load, :base_power, base_power, "MVA")
     set_value!(load, :conformity, _conformity_string(Int(d["conformity"])))
     add_component!(sys, load)
     return

@@ -16,7 +16,7 @@
 
 """
 One piecewise-linear curve and control-mode per impedance-correction table number.
-Ported from PSCB's `_impedance_correction_table_lookup` (:213-261), minus the per-winding
+Ported from PSCB's `_impedance_correction_table_lookup`, minus the per-winding
 pre-expansion — [`_attach_impedance_correction!`](@ref) does that lazily, only for
 (table, winding) pairs a transformer actually references.
 """
@@ -155,7 +155,7 @@ end
 """
 Attach `ImpedanceCorrectionData` supplemental attributes to every `TwoWindingTransformer`/
 `ThreeWindingTransformer` that references an impedance-correction table. Ported from
-PSCB's `_attach_impedance_correction_tables!` (:294-330), but driven by re-walking
+PSCB's `_attach_impedance_correction_tables!`, but driven by re-walking
 `data["branch"]`/`data["3w_transformer"]` rather than called inline from the transformer
 readers — so the name derivation below must match
 [`read_branches!`](@ref)/[`read_3w_transformers!`](@ref) exactly, same formatter kwargs

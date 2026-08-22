@@ -57,19 +57,30 @@ function _unique_bus_names(bus_data)
 end
 
 """
-PSS/E AREA DATA per-area metadata (name, slack bus, desired/tolerance interchange) for
-the `Area` named `area_name`, in PSCB's own `ext` shape. Ported from the inline
-area_interchange lookup inside PSCB's `read_bus!` (:437-458), including its match rule's
-`area_name_formatter`-dependent behavior: a non-default formatter makes this comparison
-never match, the same silent gap the oracle has.
+Whether PSS/E AREA DATA carries per-area metadata (name, slack bus, desired/tolerance
+interchange) for the `Area` named `area_name`. Matches the inline area_interchange lookup
+inside PSCB's `read_bus!`, including its match rule's `area_name_formatter`-dependent
+behavior: a non-default formatter makes this comparison never match, the same silent gap
+the oracle has.
+"""
+function _has_area_interchange(data::Dict, area_name::AbstractString)
+    if get(data, "source_type", nothing) != "pti" || !haskey(data, "area_interchange")
+        return false
+    end
+    for (_, area_data) in data["area_interchange"]
+        if haskey(area_data, "area_number") &&
+           string(area_data["area_number"]) == area_name
+            return true
+        end
+    end
+    return false
+end
 
-Returns `nothing` for "no match" rather than the oracle's unconditional all-`""` dict, so
-the caller only calls `set_ext!` when there is real data to record.
+"""
+PSS/E AREA DATA per-area metadata for the `Area` named `area_name`, in PSCB's own `ext`
+shape. Call only after [`_has_area_interchange`](@ref) confirms a match exists.
 """
 function _area_interchange_ext(data::Dict, area_name::AbstractString)
-    if get(data, "source_type", nothing) != "pti" || !haskey(data, "area_interchange")
-        return nothing
-    end
     for (_, area_data) in data["area_interchange"]
         if haskey(area_data, "area_number") &&
            string(area_data["area_number"]) == area_name
@@ -82,7 +93,7 @@ function _area_interchange_ext(data::Dict, area_name::AbstractString)
             )
         end
     end
-    return nothing
+    error("_area_interchange_ext: no area_interchange record for area $area_name")
 end
 
 """
@@ -104,9 +115,8 @@ function _ensure_area!(sys::OpenAPISystem, data::Dict, name::AbstractString)
     # Area has no device base; base_power records the system base.
     set_value!(area, :base_power, get_base_power(sys), "MVA")
     add_component!(sys, area)
-    extras = _area_interchange_ext(data, name)
-    if !isnothing(extras)
-        set_ext!(sys, id, extras)
+    if _has_area_interchange(data, name)
+        set_ext!(sys, id, _area_interchange_ext(data, name))
     end
     return id
 end

@@ -2110,6 +2110,17 @@ function _parse_substation_section!(
     return line_index
 end
 
+"""The v35 / v29-v30 / default variant of a per-version PTI table, selected by `version`."""
+function _pti_version_select(version::Int, v35, v2930, default)
+    if version == 35
+        return v35
+    elseif version in (29, 30)
+        return v2930
+    else
+        return default
+    end
+end
+
 """
 Determine the PSS(R)E revision number of a raw file from its CASE IDENTIFICATION
 header line (the REV field), falling back to 30 when the field is absent or
@@ -2122,7 +2133,7 @@ function _resolve_pti_version(data_lines, is_v35)
     fields, _ = _get_line_elements(data_lines[header])
     length(fields) < 3 && return 30
     rev = tryparse(Int, strip(fields[3]))
-    return rev === nothing ? 30 : rev
+    return something(rev, 30)
 end
 
 """
@@ -2144,18 +2155,15 @@ function _parse_pti_data(data_io::IO)
         throw(IS.DataFormatError("Unsupported PSS(R)E raw version: $version"))
     end
 
-    active_sections = if version == 35
-        deepcopy(_pti_sections_v35)
-    elseif version in (29, 30)
-        deepcopy(_pti_sections_v30)
-    else
-        deepcopy(_pti_sections)
-    end
+    active_sections =
+        deepcopy(
+            _pti_version_select(version, _pti_sections_v35, _pti_sections_v30,
+                _pti_sections),
+        )
 
     pti_data = Dict{String, Array{Dict}}()
 
     section = popfirst!(active_sections)
-    section_v35 = section
     section_data = Dict{String, Any}()
 
     header_line_start = is_v35 ? 2 : 1 # Start in second line due to @!
@@ -2195,13 +2203,8 @@ function _parse_pti_data(data_io::IO)
         4 # Start for all v33 files
     end
 
-    current_dtypes = if version == 35
-        _pti_dtypes_v35
-    elseif version in (29, 30)
-        _pti_dtypes_v30
-    else
-        _pti_dtypes
-    end
+    current_dtypes =
+        _pti_version_select(version, _pti_dtypes_v35, _pti_dtypes_v30, _pti_dtypes)
 
     line_index = 1
     while line_index <= length(data_lines)
@@ -2218,7 +2221,7 @@ function _parse_pti_data(data_io::IO)
         first_element = _unquote(elements[1])
 
         if is_v35 && (line_index == 3 || line_index == 4) &&
-           section_v35 == "CASE IDENTIFICATION"
+           section == "CASE IDENTIFICATION"
             comment_line = strip(line)
             comment_key = line_index == 3 ? "Comment_Line_1" : "Comment_Line_2"
 
@@ -2811,21 +2814,15 @@ Internal function. Populates empty fields with PSS(R)E PTI v33 default values
 """
 function _populate_defaults!(data::Dict)
     rev = get(data["CASE IDENTIFICATION"][1], "REV", 30)
-    version = rev == "" ? 30 : rev
-    sections = if version == 35
-        _pti_sections_v35
-    elseif version in (29, 30)
-        _pti_sections_v30
+    if rev == ""
+        version = 30
     else
-        _pti_sections
+        version = rev
     end
-    defaults = if version == 35
-        _pti_defaults_v35
-    elseif version in (29, 30)
-        _pti_defaults_v30
-    else
-        _pti_defaults
-    end
+    sections =
+        _pti_version_select(version, _pti_sections_v35, _pti_sections_v30, _pti_sections)
+    defaults =
+        _pti_version_select(version, _pti_defaults_v35, _pti_defaults_v30, _pti_defaults)
 
     for section in sections
         if haskey(data, section)

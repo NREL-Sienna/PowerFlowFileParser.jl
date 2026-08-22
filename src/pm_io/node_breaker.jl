@@ -47,7 +47,7 @@ function _representative_node(nodes::Vector, src::Dict)
          get(n, "va", nothing) == get(src, "va", 0.0))
     pool = filter(inherits_bus_voltage, nodes)
     isempty(pool) && (pool = nodes)
-    return pool[argmin([n["number"] for n in pool])]
+    return argmin(n -> n["number"], pool)
 end
 
 # Turns on the isolated-bus bookkeeping that `_psse2pm_bus!` turns on for an IDE=4 BUS
@@ -102,7 +102,11 @@ function _prepare_node_breaker!(pm_data::Dict)
             # service the BUS record's IDE still governs: the retained record is left
             # exactly as the file declared it rather than being reconciled here.
             in_service = filter(n -> get(n, "status", 1) == 1, nodes)
-            rep = _representative_node(isempty(in_service) ? nodes : in_service, src)
+            if isempty(in_service)
+                rep = _representative_node(nodes, src)
+            else
+                rep = _representative_node(in_service, src)
+            end
             for n in nodes
                 if n === rep
                     num = I
@@ -210,7 +214,7 @@ identifier. Falls back to the declared bus number when no terminal claims it.
 function _nb_target(nb, busno::Int, typ::String, other, id)
     busno in nb.nb_bus_numbers || return busno
     ni = get(nb.terminal_node, (busno, typ, something(other, 0), _nb_id(id)), nothing)
-    return ni === nothing ? busno : ni
+    return something(ni, busno)
 end
 
 # A type-"3" terminal's key carries only one of the winding's two sibling buses
