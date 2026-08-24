@@ -55,9 +55,10 @@ end
     @test PFP.get_value(line, :base_power) == base
 end
 
-@testset "FixedAdmittance: PSS/E-native COMPONENT_MVAR Y, no scaling" begin
+@testset "FixedAdmittance: COMPONENT_MVAR Y is natural, undoing the pm dict's system per-unit" begin
     pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
+    base = pm.data["baseMVA"]
     d = only(v for v in values(pm.data["shunt"]) if v["shunt_bus"] == 111)
     shunt = only(
         s for s in PFP.get_components(sys, "FixedAdmittance") if
@@ -65,12 +66,19 @@ end
     )
     @test PFP.get_value(shunt, :available) == d["status"]
     @test PFP.get_value(shunt, :admittance_units) == "COMPONENT_MVAR"
-    @test _matches_nt(PFP.get_value(shunt, :Y), (real = d["gs"], imag = d["bs"]))
+    @test _matches_nt(
+        PFP.get_value(shunt, :Y),
+        (real = d["gs"] * base, imag = d["bs"] * base),
+    )
+    # The fixture's bus-111 FIXED SHUNT record declares GL/BL as 100.000/200.000, so
+    # COMPONENT_MVAR must read back as the RAW's own MW/MVAr, not the pm dict's 1.0/2.0 pu.
+    @test _matches_nt(PFP.get_value(shunt, :Y), (real = 100.0, imag = 200.0))
 end
 
-@testset "SwitchedAdmittance: control mode mapping, Y_increase array conversion, admittance_limits passthrough" begin
+@testset "SwitchedAdmittance: control mode mapping, natural Y/Y_increase, admittance_limits passthrough" begin
     pm = fourteen_bus_pm_data()
     sys = PFP.build_openapi_system(pm)
+    base = pm.data["baseMVA"]
     d = only(v for v in values(pm.data["switched_shunt"]) if v["shunt_bus"] == 101)
     @test d["control_mode"] == 1
 
@@ -79,15 +87,22 @@ end
         PFP.get_value(s, :bus) == PFP.get_bus_id(PFP.get_registry(sys), 101)
     )
     @test PFP.get_value(shunt, :control_mode) == "DISCRETE_VOLTAGE"
-    @test _matches_nt(PFP.get_value(shunt, :Y), (real = d["gs"], imag = d["bs"]))
+    @test _matches_nt(
+        PFP.get_value(shunt, :Y),
+        (real = d["gs"] * base, imag = d["bs"] * base),
+    )
     @test PFP.get_value(shunt, :number_of_steps) == d["step_number"]
     y_increase = PFP.get_value(shunt, :Y_increase)
     @test length(y_increase) == length(d["y_increment"])
     @test all(
-        PFP.get_value(shunt, :Y_increase)[i].real == real(d["y_increment"][i]) &&
-        PFP.get_value(shunt, :Y_increase)[i].imag == imag(d["y_increment"][i]) for
+        y_increase[i].real == real(d["y_increment"][i]) * base &&
+        y_increase[i].imag == imag(d["y_increment"][i]) * base for
         i in eachindex(d["y_increment"])
     )
+    # The fixture's bus-101 SWITCHED SHUNT record declares BINIT = 50.00 and B1 = 100.00,
+    # so both must read back in the RAW's own MVAr rather than the pm dict's 0.5/1.0 pu.
+    @test _matches_nt(PFP.get_value(shunt, :Y), (real = 0.0, imag = 50.0))
+    @test only(y_increase).imag == 100.0
     @test _matches_nt(
         PFP.get_value(shunt, :admittance_limits),
         (min = d["admittance_limits"][1], max = d["admittance_limits"][2]),
