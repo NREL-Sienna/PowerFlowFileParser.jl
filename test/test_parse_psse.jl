@@ -156,11 +156,8 @@ end
 end
 
 @testset "PSSE transformer CM=2 magnetizing susceptance is inductive" begin
-    # Under CM=2 a transformer record gives MAG1 as no-load loss in watts and MAG2 as the
-    # exciting current magnitude in device per-unit — a positive number by convention. The
-    # magnetizing branch is inductive, so the susceptance derived from it must be the
-    # negative root, matching the already-negative susceptance a CM=1 record supplies
-    # directly.
+    # Under CM=2 a transformer record gives MAG1 as a positive number by convention, when
+    # the magnetizing branch is inductive (negative susceptance).
     raw = read_fixture(FOURTEEN_BUS_FIXTURE)
 
     # The fixture's transformers are all CM=1 with zero MAG1/MAG2. Flip one two-winding

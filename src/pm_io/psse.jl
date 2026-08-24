@@ -1005,9 +1005,7 @@ function apply_tap_correction!(
 end
 
 # Two-winding records name their buses "f_bus"/"t_bus", three-winding ones
-# "bus_primary"/"bus_secondary"/"bus_tertiary"; both reach the warning below, so reaching
-# for the two-winding keys unconditionally costs the three-winding warning its message —
-# the logging machinery swallows the KeyError and emits a stacktrace in its place.
+# "bus_primary"/"bus_secondary"/"bus_tertiary"; both reach the warning below.
 function _transformer_bus_label(sub_data::Dict)
     haskey(sub_data, "f_bus") && return "$(sub_data["f_bus"]) -> $(sub_data["t_bus"])"
     return string(

@@ -111,9 +111,7 @@ end
     @test d["br_x"] ≈ 0.05626483087470335
 
     # CM=2: MAG1 (80000.0 W) is no-load loss, MAG2 (0.005 pu) is exciting current;
-    # G_pu = 1e-6*MAG1/base_power, B_pu = -sqrt(MAG2^2 - G_pu^2). The root is negative
-    # because the magnetizing branch is inductive: MAG2 is a current magnitude here,
-    # whereas a CM=1 record states the same susceptance directly and already negative.
+    # G_pu = 1e-6*MAG1/base_power, B_pu = -sqrt(MAG2^2 - G_pu^2).
     g_pu = 1e-6 * 80000.0 / d["base_power"]
     @test g_pu ≈ 0.001
     b_pu = -sqrt(0.005^2 - g_pu^2)
