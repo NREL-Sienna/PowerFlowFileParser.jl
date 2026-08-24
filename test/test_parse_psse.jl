@@ -126,3 +126,31 @@ end
     @test pm_v33["bus"][1]["area_slack"] === true
     @test !haskey(pm_v33["bus"][3], "area_slack")
 end
+
+@testset "PSSE pre-v35 switched shunt blocks start out of service" begin
+    # Pre-v35 SWITCHED SHUNT records have no per-block status field, so the parser has to
+    # fabricate one. BINIT already carries the total in-service admittance into `bs`, so
+    # every block must start at zero whatever MODSW says; an in-service block would
+    # double-count the admittance BINIT has already contributed.
+    raw = read_fixture(FOURTEEN_BUS_FIXTURE)
+    pm_data = parse_file(IOBuffer(raw); filetype = "raw")
+    @test pm_data["source_version"] == "33"
+
+    shunts = collect(values(pm_data["switched_shunt"]))
+    @test !isempty(shunts)
+    for shunt in shunts
+        @test shunt["initial_status"] == zeros(Int, length(shunt["y_increment"]))
+    end
+
+    # Bus 101's record is MODSW=1, which an earlier mode-specific patch already zeroed.
+    # MODSW=3 took the fabricated all-ones path and is the case this fixes.
+    modsw3 = replace(raw, "   101,1,0,1," => "   101,3,0,1,"; count = 1)
+    @test modsw3 != raw
+    pm_modsw3 = parse_file(IOBuffer(modsw3); filetype = "raw")
+    shunt_101 =
+        only(v for v in values(pm_modsw3["switched_shunt"]) if v["shunt_bus"] == 101)
+    @test shunt_101["control_mode"] == 3
+    @test shunt_101["step_number"] == [5]
+    @test length(shunt_101["y_increment"]) == 1
+    @test shunt_101["initial_status"] == [0]
+end

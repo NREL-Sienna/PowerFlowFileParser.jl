@@ -951,15 +951,13 @@ function _psse2pm_shunt!(pm_data::Dict, pti_data::Dict, import_all::Bool, nb)
 
                 sub_data["ext"]["NREG"] = pop!(switched_shunt, "NREG")
             elseif pm_data["source_version"] ∈ ("30", "32", "33")
-                sub_data["initial_status"] = ones(Int, length(sub_data["y_increment"]))
+                # Pre-v35 SWITCHED SHUNT records carry no per-block status field. BINIT
+                # already holds the total in-service admittance, which `bs` above passes
+                # on, so every block must start out of service whatever MODSW says —
+                # counting any of them in would double-count that same admittance.
+                sub_data["initial_status"] = zeros(Int, length(sub_data["y_increment"]))
             else
                 error("Unsupported PSS(R)E source version: $(pm_data["source_version"])")
-            end
-
-            if switched_shunt["MODSW"] ∈ (0, 1, 2)
-                # BINIT is treated as the total shunt admittance.
-                # Keep Y_increase but zero all initial states to avoid double counting.
-                sub_data["initial_status"] = zeros(Int, length(sub_data["y_increment"]))
             end
 
             sub_data["index"] = length(pm_data["switched_shunt"]) + 1
