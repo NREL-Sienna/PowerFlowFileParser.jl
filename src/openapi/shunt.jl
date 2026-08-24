@@ -1,8 +1,13 @@
-# None of `"shunt"`/`"switched_shunt"`/`"facts"` are native PowerModels
-# sections, so `_make_per_unit!` never touches them; every field PFFP's own psse.jl
-# parser writes is used exactly as written (either PSS/E-native per-unit-at-unity-voltage,
-# `ShuntAdmittanceUnitBasis.COMPONENT_MVAR`, for shunt admittances, or a plain natural value
-# for everything else) — no `sys_mbase` scaling anywhere in this file.
+# `_make_per_unit!` divides the shunt admittances it recognizes by the case base:
+# `shunt`'s `gs`/`bs`, and `switched_shunt`'s `gs`/`bs` and `y_increment`. Those four
+# arrive here as system per-unit and are multiplied back by `base_power` before
+# `set_value!`, the same undo load.jl performs, because
+# `ShuntAdmittanceUnitBasis.COMPONENT_MVAR` declares a natural MW/MVAr-at-unity-voltage
+# value — the RAW's own GL/BL and BINIT/Bi.
+#
+# Every other field this file writes is outside that rescale and is used exactly as PFFP's
+# own psse.jl parser wrote it: `switched_shunt`'s `admittance_limits` (a voltage band, see
+# `make_switched_admittance!`) and all of `facts`.
 
 """Fixed admittance (PSS/E `FIXED SHUNT`)."""
 function make_fixed_admittance!(
@@ -12,14 +17,21 @@ function make_fixed_admittance!(
     d::Dict,
     bus_id::Int,
 )
+    base_power = get_base_power(sys)
+
     component = PO.FixedAdmittance()
     set_value!(component, :id, register!(reg, "FixedAdmittance", name))
     set_value!(component, :name, name)
     set_value!(component, :available, Bool(d["status"]))
     set_value!(component, :bus, bus_id)
-    set_value!(component, :base_power, get_base_power(sys), "MVA")
+    set_value!(component, :base_power, base_power, "MVA")
     set_value!(component, :admittance_units, "COMPONENT_MVAR")
-    set_value!(component, :Y, (real = d["gs"], imag = d["bs"]), "MVAr")
+    set_value!(
+        component,
+        :Y,
+        (real = d["gs"] * base_power, imag = d["bs"] * base_power),
+        "MVAr",
+    )
     add_component!(sys, component)
     return
 end
@@ -72,7 +84,9 @@ Switched admittance (PSS/E `SWITCHED SHUNT`).
 
 `admittance_limits` mirrors PSCB's own field verbatim: PSS/E's `VSWLO`/`VSWHI` are a
 controlled-voltage band, not an admittance band, despite the oracle's field name — a
-pre-existing PSCB naming quirk reproduced faithfully, not fixed here.
+pre-existing PSCB naming quirk reproduced faithfully, not fixed here. Being voltages, they
+are outside `_make_per_unit!`'s admittance rescale and take no `base_power` factor, unlike
+`Y` and `Y_increase`.
 """
 function make_switched_admittance!(
     sys::OpenAPISystem,
@@ -82,6 +96,7 @@ function make_switched_admittance!(
     bus_id::Int,
 )
     control_mode = _switched_admittance_control_mode(Int(d["control_mode"]))
+    base_power = get_base_power(sys)
 
     component = PO.SwitchedAdmittance()
     set_value!(component, :id, register!(reg, "SwitchedAdmittance", name))
@@ -89,9 +104,14 @@ function make_switched_admittance!(
     set_value!(component, :available, Bool(d["status"]))
     set_value!(component, :bus, bus_id)
     set_value!(component, :admittance_units, "COMPONENT_MVAR")
-    set_value!(component, :Y, (real = d["gs"], imag = d["bs"]), "MVAr")
+    set_value!(
+        component,
+        :Y,
+        (real = d["gs"] * base_power, imag = d["bs"] * base_power),
+        "MVAr",
+    )
     set_value!(component, :number_of_steps, d["step_number"])
-    _set_y_increase!(component, d["y_increment"], "MVAr")
+    _set_y_increase!(component, d["y_increment"] * base_power, "MVAr")
     admittance_limits = d["admittance_limits"]
     set_value!(component, :admittance_limits,
         (min = admittance_limits[1], max = admittance_limits[2]), "MVAr")
