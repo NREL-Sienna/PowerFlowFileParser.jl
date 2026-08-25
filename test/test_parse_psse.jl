@@ -154,3 +154,83 @@ end
     @test length(shunt_101["y_increment"]) == 1
     @test shunt_101["initial_status"] == [0]
 end
+
+@testset "PSSE transformer CM=2 magnetizing susceptance is inductive" begin
+    # Under CM=2 a transformer record gives MAG1 as a positive number by convention, when
+    # the magnetizing branch is inductive (negative susceptance).
+    raw = read_fixture(FOURTEEN_BUS_FIXTURE)
+
+    # The fixture's transformers are all CM=1 with zero MAG1/MAG2. Flip one two-winding
+    # and one three-winding record to CM=2 and give them a loss/exciting-current pair.
+    # Record line 1 is `I, J, K, CKT, CW, CZ, CM, MAG1, MAG2, NMETR, NAME, ...`.
+    mag1_watts, mag2_pu = 3.0e4, 5.0e-3
+    cm2 = replace(
+        raw,
+        "   109,   104,     0,'1 ',1,1,1, 0.00000E+0, 0.00000E+0,2,'TRAFO 2W 3  '" => "   109,   104,     0,'1 ',1,1,2, 3.00000E+4, 5.00000E-3,2,'TRAFO 2W 3  '",
+        "   109,   104,   107,'1 ',1,1,1, 0.00000E+0, 0.00000E+0,2,'TRAFO 3W 2  '" => "   109,   104,   107,'1 ',1,1,2, 3.00000E+4, 5.00000E-3,2,'TRAFO 3W 2  '",
+    )
+    @test cm2 != raw
+    pm_data = parse_file(IOBuffer(cm2); filetype = "raw")
+
+    # SBASE1-2 is 100.0 for both records, so G is watts scaled to that base and B closes
+    # the right triangle against the exciting current.
+    expected_g = 1e-6 * mag1_watts / 100.0
+    expected_b = -sqrt(mag2_pu^2 - expected_g^2)
+    @test expected_b < 0
+
+    branch = only(
+        v for v in values(pm_data["branch"]) if
+        get(get(v, "ext", Dict()), "psse_name", "") == "TRAFO 2W 3  "
+    )
+    @test branch["g_fr"] ≈ expected_g
+    @test branch["b_fr"] ≈ expected_b
+    @test branch["b_fr"] < 0
+
+    transformer_3w = only(
+        v for v in values(pm_data["3w_transformer"]) if
+        get(get(v, "ext", Dict()), "psse_name", "") == "TRAFO 3W 2  "
+    )
+    @test transformer_3w["g"] ≈ expected_g
+    @test transformer_3w["b"] ≈ expected_b
+    @test transformer_3w["b"] < 0
+end
+
+@testset "PSSE transformer CM=2 zero MAG1/MAG2 warns on both winding counts" begin
+    # The zero check guards against a magnetizing branch with nothing to derive. It only
+    # runs under CM=2, so flip the same two records the sign test uses but leave their
+    # MAG1/MAG2 at the fixture's zeros. The three-winding record is the one that matters:
+    # its sub_data names buses "bus_primary"/"bus_secondary"/"bus_tertiary", so a warning
+    # reaching for "f_bus" would throw rather than warn.
+    raw = read_fixture(FOURTEEN_BUS_FIXTURE)
+    cm2 = replace(
+        raw,
+        "   109,   104,     0,'1 ',1,1,1, 0.00000E+0, 0.00000E+0,2,'TRAFO 2W 3  '" => "   109,   104,     0,'1 ',1,1,2, 0.00000E+0, 0.00000E+0,2,'TRAFO 2W 3  '",
+        "   109,   104,   107,'1 ',1,1,1, 0.00000E+0, 0.00000E+0,2,'TRAFO 3W 2  '" => "   109,   104,   107,'1 ',1,1,2, 0.00000E+0, 0.00000E+0,2,'TRAFO 3W 2  '",
+    )
+    @test cm2 != raw
+
+    # Collect the records rather than using @test_logs: a message that fails to build is
+    # still reported as a warning, and match_mode = :any accepts that stand-in, so assert
+    # on the rendered message text directly.
+    logs, pm_data = Test.collect_test_logs() do
+        parse_file(IOBuffer(cm2); filetype = "raw")
+    end
+    messages = [string(r.message) for r in logs if r.level == Logging.Warn]
+    @test count(m -> occursin("has zero MAG1 and MAG2 values", m), messages) == 2
+    @test any(m -> occursin("Transformer 109 -> 104 has zero", m), messages)
+    @test any(m -> occursin("Transformer 109 -> 104 -> 107 has zero", m), messages)
+
+    branch = only(
+        v for v in values(pm_data["branch"]) if
+        get(get(v, "ext", Dict()), "psse_name", "") == "TRAFO 2W 3  "
+    )
+    @test branch["g_fr"] == 0.0
+    @test branch["b_fr"] == 0.0
+
+    transformer_3w = only(
+        v for v in values(pm_data["3w_transformer"]) if
+        get(get(v, "ext", Dict()), "psse_name", "") == "TRAFO 3W 2  "
+    )
+    @test transformer_3w["g"] == 0.0
+    @test transformer_3w["b"] == 0.0
+end

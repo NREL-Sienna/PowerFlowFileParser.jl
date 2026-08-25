@@ -111,13 +111,14 @@ end
     @test d["br_x"] ≈ 0.05626483087470335
 
     # CM=2: MAG1 (80000.0 W) is no-load loss, MAG2 (0.005 pu) is exciting current;
-    # G_pu = 1e-6*MAG1/base_power, B_pu = sqrt(MAG2^2 - G_pu^2).
+    # G_pu = 1e-6*MAG1/base_power, B_pu = -sqrt(MAG2^2 - G_pu^2).
     g_pu = 1e-6 * 80000.0 / d["base_power"]
     @test g_pu ≈ 0.001
-    b_pu = sqrt(0.005^2 - g_pu^2)
-    @test b_pu ≈ 0.004898979485566357
+    b_pu = -sqrt(0.005^2 - g_pu^2)
+    @test b_pu ≈ -0.004898979485566357
     @test d["g_fr"] ≈ g_pu
     @test d["b_fr"] ≈ b_pu
+    @test d["b_fr"] < 0
 
     # tap: WINDV1/WINDV2 * (bus_J_base_kv/bus_I_base_kv) * (winding1_nominal_voltage /
     # winding2_nominal_voltage); NOMV1=0 -> winding1_nominal_voltage = bus_I_base_kv

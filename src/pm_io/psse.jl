@@ -1004,21 +1004,34 @@ function apply_tap_correction!(
     return windv_value
 end
 
+# Two-winding records name their buses "f_bus"/"t_bus", three-winding ones
+# "bus_primary"/"bus_secondary"/"bus_tertiary"; both reach the warning below.
+function _transformer_bus_label(sub_data::Dict)
+    haskey(sub_data, "f_bus") && return "$(sub_data["f_bus"]) -> $(sub_data["t_bus"])"
+    return string(
+        sub_data["bus_primary"], " -> ", sub_data["bus_secondary"],
+        " -> ", sub_data["bus_tertiary"],
+    )
+end
+
 # Base Power has a different key in sub_data depending on the number of windings
 function _transformer_mag_pu_conversion(
     transformer::Dict,
     sub_data::Dict,
     base_power::Float64,
 )
-    if isapprox(transformer["MAG1"], ZERO_IMPEDANCE_REACTANCE_THRESHOLD) &&
-       isapprox(transformer["MAG2"], ZERO_IMPEDANCE_REACTANCE_THRESHOLD)
-        @warn "Transformer $(sub_data["f_bus"]) -> $(sub_data["t_bus"]) has zero MAG1 and MAG2 values."
+    if isapprox(transformer["MAG1"], 0.0; atol = ZERO_IMPEDANCE_REACTANCE_THRESHOLD) &&
+       isapprox(transformer["MAG2"], 0.0; atol = ZERO_IMPEDANCE_REACTANCE_THRESHOLD)
+        @warn "Transformer $(_transformer_bus_label(sub_data)) has zero MAG1 and MAG2 values."
         return 0.0, 0.0
     else
         G_pu = PSSE_MICRO_UNIT_SCALE * transformer["MAG1"] / base_power
         mag_diff = transformer["MAG2"]^2 - G_pu^2
         @assert mag_diff >= -ZERO_IMPEDANCE_REACTANCE_THRESHOLD
-        B_pu = sqrt(max(0.0, mag_diff))
+        # The magnetizing branch is inductive: MAG2 under CM=2 is the exciting current
+        # magnitude (positive by convention), so the susceptance it implies is the
+        # negative root, matching the already-negative MAG2 a CM=1 record supplies.
+        B_pu = -sqrt(max(0.0, mag_diff))
         return G_pu, B_pu
     end
 end
