@@ -100,6 +100,10 @@ const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
     # conventions.
     ("TransformerCircuit", :r) => :skip,
     ("TransformerCircuit", :x) => :skip,
+    ("Line", :r) => :skip,
+    ("Line", :x) => :skip,
+    ("Line", :b) => :skip,
+    ("Line", :g) => :skip,
     ("ThreeWindingTransformer", :r_12) => :skip,
     ("ThreeWindingTransformer", :x_12) => :skip,
     ("ThreeWindingTransformer", :r_23) => :skip,
