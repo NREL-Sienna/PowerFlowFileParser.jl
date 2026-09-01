@@ -281,6 +281,7 @@ function make_vscline!(
     set_value!(component, :remote_bus_control_to, _psse_remote_bus(d, "REMOT_TO"))
     set_value!(component, :rmpct_to, get(get(d, "ext", Dict()), "RMPCT_TO", 100.0), "1")
     set_value!(component, :rated_dc_voltage, d["rated_dc_voltage"], "kV")
+    set_value!(component, :base_power, sys_mbase, "MVA")
     add_component!(sys, component)
     set_component_ext!(sys, component, get(d, "ext", Dict{String, Any}()))
     return
