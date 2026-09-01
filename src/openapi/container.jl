@@ -145,7 +145,7 @@ function add_supplemental_attribute_association!(
 )
     push!(
         get_document(sys).supplemental_attribute_associations,
-        PC.SupplementalAttributeAssociation(;
+        IC.SupplementalAttributeAssociation(;
             component_id = component_id,
             component_type = String(component_type),
             attribute_id = get_value(attribute, :id),

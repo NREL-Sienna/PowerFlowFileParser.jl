@@ -14,11 +14,11 @@
 # ── Field classification, mechanical path ───────────────────────────────────────
 #
 # A field converts when, mechanically:
-#   - it declares a unit (`PC.has_declared_unit`);
-#   - that unit is not relative to a sibling field (`!PC.has_unit_base` — e.g.
+#   - it declares a unit (`IC.has_declared_unit`);
+#   - that unit is not relative to a sibling field (`!IC.has_unit_base` — e.g.
 #     `ACBus.magnitude` is already pu on `base_voltage` regardless of document unit
 #     system, so it is untouched here);
-#   - its Type-level (not instance-level) `PC.declared_unit`/`PC.declared_quantity`
+#   - its Type-level (not instance-level) `IC.declared_unit`/`IC.declared_quantity`
 #     resolve without error (`_has_fixed_declared_unit`) — see the next section for what
 #     happens when they do not;
 #   - that unit's quantity is power-family (`ActivePower`/`ReactivePower`/`ApparentPower`/
@@ -178,7 +178,7 @@ Type-level method (every power-family field: its unit now depends on the compone
 "not fixed" here."""
 function _has_fixed_declared_unit(::Type{T}, prop::Symbol) where {T}
     try
-        PC.declared_unit(T, Val(prop))
+        IC.declared_unit(T, Val(prop))
         return true
     catch e
         (e isa ErrorException || e isa MethodError) || rethrow()
@@ -238,7 +238,7 @@ function _devicebase_dynamic(key::AbstractString, prop::Symbol, po)
             "_DEVICEBASE_DYNAMIC_QUANTITIES",
         )
     end
-    quantity = PC.declared_quantity(po, Val(prop))
+    quantity = IC.declared_quantity(po, Val(prop))
     verdict = get(quantities, quantity, nothing)
     if verdict === nothing
         error(
@@ -283,7 +283,7 @@ this fallback.
 function _power_units_only_dispatch(representative::T, prop::Symbol) where {T}
     poisoned = _with_power_units(representative, nothing)
     try
-        PC.declared_quantity(poisoned, Val(prop))
+        IC.declared_quantity(poisoned, Val(prop))
     catch e
         e isa ErrorException || rethrow()
         return occursin("power_units=", e.msg)
@@ -309,14 +309,14 @@ function _devicebase_classification(
     if startswith(string(prop), "base_power")
         return :skip
     end
-    if !PC.has_declared_unit(T, Val(prop)) || PC.has_unit_base(T, Val(prop))
+    if !IC.has_declared_unit(T, Val(prop)) || IC.has_unit_base(T, Val(prop))
         return :skip
     end
     if _has_fixed_declared_unit(T, prop)
-        quantity = PC.declared_quantity(T, Val(prop))
+        quantity = IC.declared_quantity(T, Val(prop))
     elseif !haskey(_DEVICEBASE_INSTANCE_DISPATCHED, (String(key), prop)) &&
            _power_units_only_dispatch(representative, prop)
-        quantity = PC.declared_quantity(representative, Val(prop))
+        quantity = IC.declared_quantity(representative, Val(prop))
     else
         return _devicebase_instance_dispatched(key, prop)
     end

@@ -443,7 +443,7 @@ function make_storage!(
     set_value!(
         component,
         :storage_level_limits,
-        PC.MinMax(; min = 0.0, max = _natural_value(energy_rating, thermal_rating)),
+        IC.MinMax(; min = 0.0, max = _natural_value(energy_rating, thermal_rating)),
     )
     set_value!(component, :initial_storage_capacity_level, d["energy"] / energy_rating, "1")
     set_value!(component, :rating, _natural_value(thermal_rating, thermal_rating), "MVA")
@@ -463,7 +463,7 @@ function make_storage!(
     set_value!(
         component,
         :efficiency,
-        PC.InOut(; in = d["charge_efficiency"], out = d["discharge_efficiency"]),
+        IC.InOut(; in = d["charge_efficiency"], out = d["discharge_efficiency"]),
     )
     set_value!(component, :reactive_power, _natural_value(d["qs"], thermal_rating), "MVAr")
     set_value!(

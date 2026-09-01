@@ -17,7 +17,7 @@ function _serialize_test_system(; power_units::AbstractString = "NATURAL_UNITS")
     PFP.set_value!(area, :base_power, PFP.get_base_power(sys), "MVA")
     PFP.add_component!(sys, area)
 
-    geo = PFP.PC.GeographicInfo()
+    geo = PFP.IC.GeographicInfo()
     PFP.set_value!(geo, :id, PFP.next_id!(reg))
     PFP.set_value!(geo, :geo_json, Dict{String, Any}("type" => "Point"))
     PFP.add_supplemental_attribute!(sys, geo, PFP.get_value(bus, :id))
@@ -104,7 +104,7 @@ end
     path = joinpath(mktempdir(), "case.json")
     PFP.to_json(_serialize_test_system(), path)
     # PD.write_document owns the "already exists" check for the JSON path now.
-    @test_throws PFP.PC.DocumentFormatError PFP.to_json(_serialize_test_system(), path)
+    @test_throws PFP.IC.DocumentFormatError PFP.to_json(_serialize_test_system(), path)
     @test PFP.to_json(_serialize_test_system(), path; force = true) == path
 end
 

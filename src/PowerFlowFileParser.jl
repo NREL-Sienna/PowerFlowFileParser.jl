@@ -19,9 +19,11 @@ import DataStructures: SortedDict
 import Unicode: normalize
 import JSON
 import OpenAPI
+import InfrastructureCoreOpenAPIModels
 import PowerCoreOpenAPIModels
 import PowerOpenAPIModels
 import PowerOperationsOpenAPIModels
+const IC = InfrastructureCoreOpenAPIModels
 const PC = PowerCoreOpenAPIModels
 const PD = PowerOpenAPIModels
 const PO = PowerOperationsOpenAPIModels

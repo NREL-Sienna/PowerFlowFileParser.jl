@@ -10,7 +10,7 @@ the generated `CostCurve`/`FuelCurve` constructors default it to `nothing`."""
 function _zero_vom_cost()
     return PC.InputOutputCurve(;
         function_data = PC.InputOutputCurveFunctionData(
-            PC.LinearFunctionData(;
+            IC.LinearFunctionData(;
                 proportional_term = 0.0,
                 constant_term = 0.0,
             ),
@@ -27,7 +27,7 @@ function _zero_cost_curve()
         value_curve = PC.ValueCurve(
             PC.InputOutputCurve(;
                 function_data = PC.InputOutputCurveFunctionData(
-                    PC.LinearFunctionData(;
+                    IC.LinearFunctionData(;
                         proportional_term = 0.0,
                         constant_term = 0.0,
                     ),
@@ -53,8 +53,8 @@ function _piecewise_linear_cost(cost_component::Vector{Float64})
     (first_x, first_y), (second_x, second_y) = points[1], points[2]
     first_slope = (second_y - first_y) / (second_x - first_x)
     fixed = max(0.0, first_y - first_slope * first_x)
-    shifted = [PC.XYCoords(; x = x, y = y - fixed) for (x, y) in points]
-    return PC.PiecewiseLinearData(; points = shifted), fixed
+    shifted = [IC.XYCoords(; x = x, y = y - fixed) for (x, y) in points]
+    return IC.PiecewiseLinearData(; points = shifted), fixed
 end
 
 """
@@ -82,7 +82,7 @@ function _polynomial_cost(gen_name::AbstractString, cost_component::Vector{Float
     end
     quadratic_term, proportional_term, constant_term =
         (get(coeffs, deg, 0.0) for deg in quadratic_degrees)
-    return PC.QuadraticFunctionData(;
+    return IC.QuadraticFunctionData(;
         quadratic_term = quadratic_term,
         proportional_term = proportional_term,
         constant_term = constant_term,
