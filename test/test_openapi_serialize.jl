@@ -1,5 +1,5 @@
-function _serialize_test_system()
-    sys = PFP.OpenAPISystem(100.0)
+function _serialize_test_system(; power_units::AbstractString = "NATURAL_UNITS")
+    sys = PFP.OpenAPISystem(100.0; power_units = power_units)
     reg = PFP.get_registry(sys)
 
     bus = PFP.PO.ACBus()
@@ -17,7 +17,7 @@ function _serialize_test_system()
     PFP.set_value!(area, :base_power, PFP.get_base_power(sys), "MVA")
     PFP.add_component!(sys, area)
 
-    geo = PFP.PC.GeographicInfo()
+    geo = PFP.IC.GeographicInfo()
     PFP.set_value!(geo, :id, PFP.next_id!(reg))
     PFP.set_value!(geo, :geo_json, Dict{String, Any}("type" => "Point"))
     PFP.add_supplemental_attribute!(sys, geo, PFP.get_value(bus, :id))
@@ -34,34 +34,35 @@ end
 
 @testset "document top-level shape" begin
     doc = _round_trip(_serialize_test_system())
-    @test doc["base_power"] == 100.0
-    @test doc["unit_system"] == "NATURAL_UNITS"
+    @test doc["components"]["Area"][1]["base_power"] == 100.0
     @test isnothing(get(doc, "time_series_storage_file", nothing))
     @test isempty(doc["time_series_associations"])
     @test haskey(doc, "supplemental_attributes")
     @test haskey(doc, "supplemental_attribute_associations")
 end
 
-@testset "unit_system defaults to NATURAL_UNITS" begin
+@testset "power_units defaults to NATURAL_UNITS" begin
     sys = PFP.OpenAPISystem(100.0)
-    @test PFP.get_unit_system(sys) == "NATURAL_UNITS"
+    @test PFP.get_power_units(sys) == "NATURAL_UNITS"
     @test !PFP.uses_per_unit(sys)
 end
 
-@testset "unit_system accepts COMPONENT_BASE" begin
-    sys = PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE")
-    @test PFP.get_unit_system(sys) == "COMPONENT_BASE"
+@testset "power_units accepts COMPONENT_BASE" begin
+    sys = PFP.OpenAPISystem(100.0; power_units = "COMPONENT_BASE")
+    @test PFP.get_power_units(sys) == "COMPONENT_BASE"
     @test PFP.uses_per_unit(sys)
 end
 
-@testset "unit_system rejects invalid values" begin
-    @test_throws IS.DataFormatError PFP.OpenAPISystem(100.0; unit_system = "PER_UNIT")
+@testset "power_units rejects invalid values" begin
+    @test_throws IS.DataFormatError PFP.OpenAPISystem(100.0; power_units = "PER_UNIT")
 end
 
-@testset "unit_system is carried into the document" begin
+@testset "power_units is stamped onto every component that declares the field" begin
     # The NATURAL_UNITS side is covered by "document top-level shape" above.
-    device_base = _round_trip(PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE"))
-    @test device_base["unit_system"] == "COMPONENT_BASE"
+    component_base = _round_trip(_serialize_test_system(; power_units = "COMPONENT_BASE"))
+    @test component_base["components"]["Area"][1]["power_units"] == "COMPONENT_BASE"
+    # ACBus declares no power_units field, so it carries none either way.
+    @test !haskey(component_base["components"]["ACBus"][1], "power_units")
 end
 
 @testset "components are grouped by type name in sorted order" begin
@@ -93,7 +94,7 @@ end
     path = joinpath(mktempdir(), "case.json")
     @test PFP.to_json(sys, path) == path
     parsed = JSON.parsefile(path)
-    @test parsed["base_power"] == 100.0
+    @test parsed["components"]["Area"][1]["base_power"] == 100.0
     @test parsed["components"]["ACBus"][1]["name"] == "Abel"
     @test parsed["components"]["ACBus"][1]["base_voltage"] == 138.0
     @test !haskey(parsed["components"]["ACBus"][1], "angle")
@@ -103,7 +104,7 @@ end
     path = joinpath(mktempdir(), "case.json")
     PFP.to_json(_serialize_test_system(), path)
     # PD.write_document owns the "already exists" check for the JSON path now.
-    @test_throws PFP.PC.DocumentFormatError PFP.to_json(_serialize_test_system(), path)
+    @test_throws PFP.IC.DocumentFormatError PFP.to_json(_serialize_test_system(), path)
     @test PFP.to_json(_serialize_test_system(), path; force = true) == path
 end
 
@@ -143,7 +144,8 @@ end
     path = joinpath(mktempdir(), "case.json")
     PFP.to_json(sys, path)
     doc = PFP.PD.read_document(path)
-    @test PFP.PD.get_base_power(doc) == 100.0
+    area = only(PFP.PD.get_components(doc, "Area"))
+    @test PFP.get_value(area, :base_power) == 100.0
     @test length(PFP.PD.get_components(doc, "ACBus")) == 1
     @test length(PFP.PD.get_components(doc, "Area")) == 1
 end

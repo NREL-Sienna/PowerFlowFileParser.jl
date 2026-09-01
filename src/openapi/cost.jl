@@ -3,6 +3,21 @@
 # table-driven cost.jl there is no fuel-price/heat-rate separation here: a MATPOWER-shaped
 # generator cost becomes a `CostCurve`, never a `FuelCurve`.
 
+"""The schema's declared `vom_cost` default for `CostCurve`/`FuelCurve`: a zero
+linear input-output curve (Core/common.json defs.CostCurve.properties.vom_cost.default).
+`vom_cost` is schema-`required`, so every emitted curve must carry it explicitly —
+the generated `CostCurve`/`FuelCurve` constructors default it to `nothing`."""
+function _zero_vom_cost()
+    return PC.InputOutputCurve(;
+        function_data = PC.InputOutputCurveFunctionData(
+            IC.LinearFunctionData(;
+                proportional_term = 0.0,
+                constant_term = 0.0,
+            ),
+        ),
+    )
+end
+
 """A `CostCurve` with a zero linear value curve, matching PSCB's `zero(CostCurve)`
 (`NaturalUnit`, not `DeviceBaseUnit`) — the fallback for every generator/load type that
 has no cost data to read from a PowerModels dict."""
@@ -12,13 +27,14 @@ function _zero_cost_curve()
         value_curve = PC.ValueCurve(
             PC.InputOutputCurve(;
                 function_data = PC.InputOutputCurveFunctionData(
-                    PC.LinearFunctionData(;
+                    IC.LinearFunctionData(;
                         proportional_term = 0.0,
                         constant_term = 0.0,
                     ),
                 ),
             ),
         ),
+        vom_cost = _zero_vom_cost(),
     )
 end
 
@@ -37,8 +53,8 @@ function _piecewise_linear_cost(cost_component::Vector{Float64})
     (first_x, first_y), (second_x, second_y) = points[1], points[2]
     first_slope = (second_y - first_y) / (second_x - first_x)
     fixed = max(0.0, first_y - first_slope * first_x)
-    shifted = [PC.XYCoords(; x = x, y = y - fixed) for (x, y) in points]
-    return PC.PiecewiseLinearData(; points = shifted), fixed
+    shifted = [IC.XYCoords(; x = x, y = y - fixed) for (x, y) in points]
+    return IC.PiecewiseLinearData(; points = shifted), fixed
 end
 
 """
@@ -66,7 +82,7 @@ function _polynomial_cost(gen_name::AbstractString, cost_component::Vector{Float
     end
     quadratic_term, proportional_term, constant_term =
         (get(coeffs, deg, 0.0) for deg in quadratic_degrees)
-    return PC.QuadraticFunctionData(;
+    return IC.QuadraticFunctionData(;
         quadratic_term = quadratic_term,
         proportional_term = proportional_term,
         constant_term = constant_term,
@@ -85,7 +101,7 @@ function make_thermal_cost(gen_name::AbstractString, pm_gen::Dict, sys_mbase::Fl
     if !haskey(pm_gen, "model")
         @warn "Generator cost data not included for Generator: $gen_name"
         return PC.ThermalGenerationCost(;
-            variable = _zero_cost_curve(),
+            variable_operation_cost = _zero_cost_curve(),
             fixed = 0.0,
             start_up = 0.0,
             shut_down = 0.0,
@@ -102,13 +118,14 @@ function make_thermal_cost(gen_name::AbstractString, pm_gen::Dict, sys_mbase::Fl
         throw(IS.DataFormatError("$gen_name: unsupported generator cost model=$model"))
     end
     return PC.ThermalGenerationCost(;
-        variable = PC.CostCurve(;
+        variable_operation_cost = PC.CostCurve(;
             power_units = "COMPONENT_BASE",
             value_curve = PC.ValueCurve(
                 PC.InputOutputCurve(;
                     function_data = PC.InputOutputCurveFunctionData(function_data),
                 ),
             ),
+            vom_cost = _zero_vom_cost(),
         ),
         fixed = fixed,
         start_up = pm_gen["startup"],
@@ -117,10 +134,13 @@ function make_thermal_cost(gen_name::AbstractString, pm_gen::Dict, sys_mbase::Fl
 end
 
 """Curtailment cost for a hydro generator: PSCB never derives one from pm data."""
-make_hydro_cost() = PC.HydroGenerationCost(; variable = _zero_cost_curve(), fixed = 0.0)
+make_hydro_cost() =
+    PC.HydroGenerationCost(; variable_operation_cost = _zero_cost_curve(), fixed = 0.0)
 
 """Operating cost for a renewable generator: PSCB never derives one from pm data."""
-make_renewable_cost() = PC.RenewableGenerationCost(; variable = _zero_cost_curve())
+make_renewable_cost() =
+    PC.RenewableGenerationCost(; variable_operation_cost = _zero_cost_curve())
 
 """Operating cost for an interruptible load: PSCB never derives one from pm data."""
-make_load_cost() = PC.LoadCost(; variable = _zero_cost_curve(), fixed = 0.0)
+make_load_cost() =
+    PC.LoadCost(; variable_operation_cost = _zero_cost_curve(), fixed = 0.0)

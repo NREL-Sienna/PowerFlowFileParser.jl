@@ -40,7 +40,7 @@ end
     # per-load mbase concept -- unlike a generator's `mbase`), so COMPONENT_BASE's
     # natural_MW / base_power collapses to (raw_pu * base_power) / base_power == raw_pu:
     # the document should carry PowerModels' own system-per-unit numbers back verbatim.
-    sys = PFP.build_openapi_system(fourteen_bus_pm_data(); unit_system = "COMPONENT_BASE")
+    sys = PFP.build_openapi_system(fourteen_bus_pm_data(); power_units = "COMPONENT_BASE")
     data = fourteen_bus_pm_data().data
     for load in PFP.get_components(sys, "StandardLoad")
         name = PFP.get_value(load, :name)

@@ -21,7 +21,7 @@ pre-expansion — [`_attach_impedance_correction!`](@ref) does that lazily, only
 (table, winding) pairs a transformer actually references.
 """
 function _impedance_correction_curves(data::Dict)
-    curves = Dict{Int, Tuple{PC.PiecewiseLinearData, String}}()
+    curves = Dict{Int, Tuple{IC.PiecewiseLinearData, String}}()
     for (_, d) in
         _sorted_pm_entries(get(data, "impedance_correction", Dict{String, Any}()))
         table_number = Int(d["table_number"])
@@ -39,8 +39,8 @@ function _impedance_correction_curves(data::Dict)
             @warn "Skipping impedance correction table $table_number: insufficient data points ($(length(x)) < 2)."
             continue
         end
-        curve = PC.PiecewiseLinearData(;
-            points = [PC.XYCoords(; x = x[i], y = y[i]) for i in eachindex(x)],
+        curve = IC.PiecewiseLinearData(;
+            points = [IC.XYCoords(; x = x[i], y = y[i]) for i in eachindex(x)],
         )
         control_mode =
             if PSSE_PARSER_TAP_RATIO_LBOUND <= x[1] <= PSSE_PARSER_TAP_RATIO_UBOUND
@@ -61,7 +61,7 @@ Returns the attribute, so later sightings of the same pair associate against it 
 """
 function _new_impedance_correction_attribute!(
     sys::OpenAPISystem,
-    curves::Dict{Int, Tuple{PC.PiecewiseLinearData, String}},
+    curves::Dict{Int, Tuple{IC.PiecewiseLinearData, String}},
     table_number::Int,
     winding::AbstractString,
     transformer_id::Int,
@@ -90,7 +90,7 @@ shared attribute and multiple associations — see the file header.
 function _attach_impedance_correction!(
     sys::OpenAPISystem,
     cache::Dict{Tuple{Int, String}, PO.ImpedanceCorrectionData},
-    curves::Dict{Int, Tuple{PC.PiecewiseLinearData, String}},
+    curves::Dict{Int, Tuple{IC.PiecewiseLinearData, String}},
     d::Dict,
     table_key::AbstractString,
     winding::AbstractString,

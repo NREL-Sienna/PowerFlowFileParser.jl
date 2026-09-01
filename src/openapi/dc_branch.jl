@@ -16,7 +16,7 @@ function _two_terminal_loss(d::Dict)
     return PC.TwoTerminalLoss(
         PC.InputOutputCurve(;
             function_data = PC.InputOutputCurveFunctionData(
-                PC.LinearFunctionData(;
+                IC.LinearFunctionData(;
                     proportional_term = d["loss1"],
                     constant_term = d["loss0"],
                 ),
@@ -229,7 +229,7 @@ function make_vscline!(
         :converter_loss_from,
         PC.InputOutputCurve(;
             function_data = PC.InputOutputCurveFunctionData(
-                PC.LinearFunctionData(;
+                IC.LinearFunctionData(;
                     proportional_term = IS.get_proportional_term(d["converter_loss_from"]),
                     constant_term = IS.get_constant_term(d["converter_loss_from"]),
                 ),
@@ -265,7 +265,7 @@ function make_vscline!(
         :converter_loss_to,
         PC.InputOutputCurve(;
             function_data = PC.InputOutputCurveFunctionData(
-                PC.LinearFunctionData(;
+                IC.LinearFunctionData(;
                     proportional_term = IS.get_proportional_term(d["converter_loss_to"]),
                     constant_term = IS.get_constant_term(d["converter_loss_to"]),
                 ),

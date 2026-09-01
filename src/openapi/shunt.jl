@@ -70,7 +70,7 @@ function _set_y_increase!(
 )
     target, quantity = _declared(component, :Y_increase)
     converted = [
-        PC.ComplexNumber(;
+        IC.ComplexNumber(;
             real = _convert(component, :Y_increase, real(v), source_unit, target, quantity),
             imag = _convert(component, :Y_increase, imag(v), source_unit, target, quantity),
         ) for v in values

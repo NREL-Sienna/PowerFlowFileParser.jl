@@ -8,8 +8,8 @@
 # Produces three files in the output directory (default `inspection_output/`):
 #
 #   <case>.pm.json                  the parsed PowerModels dict
-#   <case>.NATURAL_UNITS.json       OpenAPI document, unit_system = NATURAL_UNITS
-#   <case>.DEVICE_BASE.json         OpenAPI document, unit_system = DEVICE_BASE
+#   <case>.NATURAL_UNITS.json       OpenAPI document, power_units = NATURAL_UNITS
+#   <case>.COMPONENT_BASE.json      OpenAPI document, power_units = COMPONENT_BASE
 #
 # Both OpenAPI documents are built via `build_openapi_system` and carry real components —
 # buses, loads, generators, branches, transformers, dc lines, shunts, plus
@@ -22,7 +22,7 @@ import JSON
 using PowerFlowFileParser
 
 const DEFAULT_CASE = joinpath(@__DIR__, "..", "test", "modified_14bus_system.raw")
-const UNIT_SYSTEMS = ("NATURAL_UNITS", "DEVICE_BASE")
+const UNIT_SYSTEMS = ("NATURAL_UNITS", "COMPONENT_BASE")
 
 function parse_args(argv)
     case = DEFAULT_CASE
@@ -117,9 +117,9 @@ function main(argv)
 
     # The OpenAPI envelope in both unit systems, built from the same parsed case via the
     # full emit layer.
-    for unit_system in UNIT_SYSTEMS
-        sys = build_openapi_system(pm; unit_system = unit_system)
-        path = joinpath(opts.out, "$stem.$unit_system.json")
+    for power_units in UNIT_SYSTEMS
+        sys = build_openapi_system(pm; power_units = power_units)
+        path = joinpath(opts.out, "$stem.$power_units.json")
         to_json(sys, path; force = true, pretty = true)
         println("  wrote $(relpath(path)) ($(round(filesize(path) / 1024; digits = 1)) KiB)")
         println(

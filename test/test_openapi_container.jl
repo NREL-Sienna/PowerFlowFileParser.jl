@@ -62,7 +62,7 @@ end
 @testset "add_supplemental_attribute! records the attribute and its link" begin
     sys = PFP.OpenAPISystem(100.0)
     PFP.add_component!(sys, _bus(1, "Abel"))
-    geo = PFP.PC.GeographicInfo()
+    geo = PFP.IC.GeographicInfo()
     PFP.set_value!(geo, :id, 2)
     PFP.set_value!(geo, :geo_json, Dict{String, Any}("type" => "Point"))
     PFP.add_supplemental_attribute!(sys, geo, 1)

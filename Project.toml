@@ -6,7 +6,9 @@ authors = ["Sienna Team"]
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+InfrastructureCoreOpenAPIModels = "1f5e1c8d-e0cc-4dbf-8c6d-f2a3d2ae70a8"
 InfrastructureSystems = "2cd47ed4-ca9b-11e9-27f2-ab636a7671f1"
+InfrastructureTimeSeriesOpenAPIModels = "37a216c8-a490-47cf-89d7-db2cb9618199"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 OpenAPI = "d5e62ea6-ddf3-4d43-8e4c-ad5e6c8bfd7d"
@@ -15,23 +17,29 @@ PowerDynamicsOpenAPIModels = "044a0b22-31f8-4ef6-8282-c9a61b3013f6"
 PowerInvestmentsOpenAPIModels = "33cb4396-f4d9-4f59-8585-787ebb56cb1b"
 PowerOpenAPIModels = "0730f07c-cff6-4c3b-a9df-c546153be50a"
 PowerOperationsOpenAPIModels = "a372b6d7-45a2-44c2-8199-6a724b72e8ff"
-PowerTimeSeriesOpenAPIModels = "8c2f6a0d-6b0e-4d0a-9d8f-2b5e6a4f9c31"
 Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 [sources]
-# These packages are generated and not yet released, so they resolve from the branch
-# rather than the registry. Switch to a tagged rev once one exists.
-PowerCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerCoreOpenAPIModels.jl"}
-PowerOperationsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerOperationsOpenAPIModels.jl"}
-PowerOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerOpenAPIModels.jl"}
-PowerDynamicsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerDynamicsOpenAPIModels.jl"}
-PowerInvestmentsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerInvestmentsOpenAPIModels.jl"}
-PowerTimeSeriesOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerTimeSeriesOpenAPIModels.jl"}
-InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
+# LOCAL PATH CO-DEV PINS (temporary): PowerOpenAPIModels split InfrastructureCore/
+# InfrastructureTimeSeries out on local disk only; committed git pins below still point at
+# `jd/schemas-0.1.0`, which predates the split. Revert to git-url pins (with subdirs matching
+# the new package names) once the split is pushed. InfrastructureSystems must also point at
+# the local IS4 checkout (not the remote branch) because that checkout already carries this
+# same split (uncommitted) and the remote IS4 branch does not yet.
+InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "jd/openapi-package-split"}
+InfrastructureCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/schemas-0.1.0", subdir = "InfrastructureCoreOpenAPIModels.jl"}
+InfrastructureTimeSeriesOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/schemas-0.1.0", subdir = "InfrastructureTimeSeriesOpenAPIModels.jl"}
+PowerCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/schemas-0.1.0", subdir = "PowerCoreOpenAPIModels.jl"}
+PowerOperationsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/schemas-0.1.0", subdir = "PowerOperationsOpenAPIModels.jl"}
+PowerOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/schemas-0.1.0", subdir = "PowerOpenAPIModels.jl"}
+PowerDynamicsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/schemas-0.1.0", subdir = "PowerDynamicsOpenAPIModels.jl"}
+PowerInvestmentsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "jd/schemas-0.1.0", subdir = "PowerInvestmentsOpenAPIModels.jl"}
 
 [compat]
 DataStructures = "0.19.3"
 DocStringExtensions = "~0.8, ~0.9"
+InfrastructureCoreOpenAPIModels = "0.1"
 InfrastructureSystems = "^3.2"
+InfrastructureTimeSeriesOpenAPIModels = "0.1"
 JSON = "1"
 LinearAlgebra = "1"
 OpenAPI = "0.2"
@@ -40,6 +48,5 @@ PowerDynamicsOpenAPIModels = "0.1"
 PowerInvestmentsOpenAPIModels = "0.1"
 PowerOpenAPIModels = "0.1"
 PowerOperationsOpenAPIModels = "0.1"
-PowerTimeSeriesOpenAPIModels = "0.1"
 Unicode = "1"
 julia = "^1.10"

@@ -2,25 +2,23 @@
 #
 # Every reader in this directory (load.jl, generation.jl, branch.jl, ...) computes and
 # assigns natural-unit values (MW/MVAr/MVA) onto the OpenAPI components it builds,
-# regardless of `unit_system` — `set_value!` (units.jl) only converts between compatible
-# physical units (kW -> MW), never into a per-unit convention. Before this pass existed,
-# a `unit_system = "COMPONENT_BASE"` document stamped the flag but carried the same natural
-# values as `"NATURAL_UNITS"`. This pass closes that gap: when the document is COMPONENT_BASE,
-# it walks every built component afterward and divides each power-family field by the
-# component's own device base (or, for a type with no device base of its own, the
-# document's system base) — the exact inverse of what PowerSystems' own `NaturalUnit`
-# importer does (`src/openapi/import_handwritten.jl`/`src/models/generated/*.jl` there),
+# regardless of the run's `power_units` — `set_value!` (units.jl) only converts between
+# compatible physical units (kW -> MW), never into a per-unit convention. This pass closes
+# that gap: when the run is COMPONENT_BASE, it walks every built component afterward and
+# divides each power-family field by the component's own device base (or, for a type with
+# no device base of its own, the system base) — the exact inverse of what PowerSystems' own
+# `NaturalUnit` importer does (`src/openapi/import_handwritten.jl`/`src/models/generated/*.jl` there),
 # so that PowerSystems' `DeviceBaseUnit` importer reading this document's numbers directly
 # reproduces the same System a `NATURAL_UNITS` document produces through `NaturalUnit`.
 #
 # ── Field classification, mechanical path ───────────────────────────────────────
 #
 # A field converts when, mechanically:
-#   - it declares a unit (`PC.has_declared_unit`);
-#   - that unit is not relative to a sibling field (`!PC.has_unit_base` — e.g.
+#   - it declares a unit (`IC.has_declared_unit`);
+#   - that unit is not relative to a sibling field (`!IC.has_unit_base` — e.g.
 #     `ACBus.magnitude` is already pu on `base_voltage` regardless of document unit
 #     system, so it is untouched here);
-#   - its Type-level (not instance-level) `PC.declared_unit`/`PC.declared_quantity`
+#   - its Type-level (not instance-level) `IC.declared_unit`/`IC.declared_quantity`
 #     resolve without error (`_has_fixed_declared_unit`) — see the next section for what
 #     happens when they do not;
 #   - that unit's quantity is power-family (`ActivePower`/`ReactivePower`/`ApparentPower`/
@@ -57,9 +55,9 @@
 #   1. A **representation switch** between per-unit and natural for the SAME field
 #      (`parameter_units`/`admittance_units`/`voltage_setpoint_units`/`dc_voltage_units`
 #      choosing between e.g. "pu" and "ohm"/"kV"). Every reader in this package writes a
-#      FIXED value for these discriminators, independent of the document's `unit_system` —
+#      FIXED value for these discriminators, independent of the run's `power_units` —
 #      confirmed by grepping every `set_value!(_, :*_units, ...)` call in this directory —
-#      so the field's own representation never depends on the document convention either,
+#      so the field's own representation never depends on the run's convention either,
 #      and PowerSystems' own converters confirm it is identical between `DeviceBaseUnit`/
 #      `NaturalUnit` in every case checked. These are `:skip`.
 #   2. A **natural-unit choice** among sibling units of the SAME quantity
@@ -142,7 +140,7 @@ const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
     ("SwitchedAdmittance", :admittance_limits) => :skip,
     # parameter_units/dc_voltage_units/admittance_units always "NATURAL_UNITS" for the
     # PSS/E-native LCC/VSC fields (dc_branch.jl) -- fixed ohm/kV/S regardless of the
-    # document's unit_system, the mirror image of the COMPONENT_BASE cases above.
+    # run's power_units, the mirror image of the COMPONENT_BASE cases above.
     ("TwoTerminalLCCLine", :r) => :skip,
     ("TwoTerminalLCCLine", :rectifier_rc) => :skip,
     ("TwoTerminalLCCLine", :rectifier_xc) => :skip,
@@ -174,13 +172,16 @@ const _DEVICEBASE_INSTANCE_DISPATCHED = Dict{Tuple{String, Symbol}, Symbol}(
 )
 
 """Whether `T.prop`'s declared unit is fixed — resolvable from the Type alone, rather than
-depending on a runtime discriminator field only the instance-level method reads."""
+depending on a runtime discriminator field only the instance-level method reads. A missing
+Type-level method (every power-family field: its unit now depends on the component's own
+`power_units`) raises `MethodError` rather than the schema's own `ErrorException`; both mean
+"not fixed" here."""
 function _has_fixed_declared_unit(::Type{T}, prop::Symbol) where {T}
     try
-        PC.declared_unit(T, Val(prop))
+        IC.declared_unit(T, Val(prop))
         return true
     catch e
-        e isa ErrorException || rethrow()
+        (e isa ErrorException || e isa MethodError) || rethrow()
         return false
     end
 end
@@ -237,7 +238,7 @@ function _devicebase_dynamic(key::AbstractString, prop::Symbol, po)
             "_DEVICEBASE_DYNAMIC_QUANTITIES",
         )
     end
-    quantity = PC.declared_quantity(po, Val(prop))
+    quantity = IC.declared_quantity(po, Val(prop))
     verdict = get(quantities, quantity, nothing)
     if verdict === nothing
         error(
@@ -248,25 +249,78 @@ function _devicebase_dynamic(key::AbstractString, prop::Symbol, po)
     return verdict
 end
 
+"""A copy of `o` with `power_units` set to `power_units` and every other field held
+exactly as-is — probes a field's instance dispatch without mutating the real component
+(see [`_power_units_only_dispatch`](@ref)). `nothing` passes the generated constructor's
+own enum validation (unlike an invalid string, which would raise `OpenAPI.ValidationException`
+there instead of letting the probe reach the declared-quantity method it targets)."""
+function _with_power_units(
+    o::T,
+    power_units::Union{Nothing, AbstractString},
+) where {T <: OpenAPI.APIModel}
+    return T(;
+        (
+            f => (f === :power_units ? power_units : getfield(o, f)) for f in fieldnames(T)
+        )...,
+    )
+end
+
 """
-Classify `key.prop` (PO type `T`) for the COMPONENT_BASE pass: `:convert_own` (divide by the
+Whether `prop`'s instance-level dispatch actually branches on `power_units`, rather than
+depending only on some other, unaccounted-for discriminator that happens to resolve
+today regardless of what `power_units` holds. `representative`'s own fields (other than
+`power_units`) are already whatever the real reader that built it set them to; poisoning
+`power_units` alone to `nothing` and checking whether resolution fails BECAUSE of it (the
+schema's generated error always names the deciding field, e.g. `"...no unit declared for
+power_units=..."`) is the only test that distinguishes the two without requiring every one
+of this schema's other discriminators to be listed here. Every ordinary power-family field
+across the 32 power-bearing types resolves this way (confirmed against the current
+schema); a field genuinely gated by another discriminator (`power_mode`,
+`parameter_units`, `dc_control_from`, ...) instead must go through the explicit
+`_DEVICEBASE_INSTANCE_DISPATCHED` registry and its loud error on a miss, never through
+this fallback.
+"""
+function _power_units_only_dispatch(representative::T, prop::Symbol) where {T}
+    poisoned = _with_power_units(representative, nothing)
+    try
+        IC.declared_quantity(poisoned, Val(prop))
+    catch e
+        e isa ErrorException || rethrow()
+        return occursin("power_units=", e.msg)
+    end
+    return false
+end
+
+"""
+Classify `key.prop` (`representative`: any one instance of `key` — every component of a
+given type carries the same run-wide `power_units`, stamped uniformly by
+[`add_component!`](@ref)) for the COMPONENT_BASE pass: `:convert_own` (divide by the
 component's own `base_power`), `:convert_system` (divide by the document's system base),
 `:dynamic` (resolved per component by [`_devicebase_dynamic`](@ref)), or `:skip`. See this
 file's header for the full rule.
 """
-function _devicebase_classification(::Type{T}, key::AbstractString, prop::Symbol) where {T}
+function _devicebase_classification(
+    representative::T,
+    key::AbstractString,
+    prop::Symbol,
+) where {T}
     # `base_power`/`base_power_12`/`base_power_23`/`base_power_31`: anchors themselves
     # (`ThreeWindingTransformer`'s three pairwise bases), never scaled by their own value.
     if startswith(string(prop), "base_power")
         return :skip
     end
-    if !PC.has_declared_unit(T, Val(prop)) || PC.has_unit_base(T, Val(prop))
+    if !IC.has_declared_unit(T, Val(prop)) || IC.has_unit_base(T, Val(prop))
         return :skip
     end
-    if !_has_fixed_declared_unit(T, prop)
+    if _has_fixed_declared_unit(T, prop)
+        quantity = IC.declared_quantity(T, Val(prop))
+    elseif !haskey(_DEVICEBASE_INSTANCE_DISPATCHED, (String(key), prop)) &&
+           _power_units_only_dispatch(representative, prop)
+        quantity = IC.declared_quantity(representative, Val(prop))
+    else
         return _devicebase_instance_dispatched(key, prop)
     end
-    if !(PC.declared_quantity(T, Val(prop)) in _DEVICEBASE_POWER_QUANTITIES)
+    if !(quantity in _DEVICEBASE_POWER_QUANTITIES)
         return :skip
     end
     if (String(key), prop) in _DEVICEBASE_FIXED_NATURAL
@@ -307,8 +361,8 @@ end
     apply_device_base_conversion!(sys::OpenAPISystem)
 
 Convert every power-family field [`build_openapi_system`](@ref)'s readers wrote in natural
-units into per-unit-on-device-base, in place, when `sys`'s document is
-`unit_system = "COMPONENT_BASE"`. A no-op for `"NATURAL_UNITS"`. See this file's header for the
+units into per-unit-on-device-base, in place, when `sys`'s run is
+`power_units = "COMPONENT_BASE"`. A no-op for `"NATURAL_UNITS"`. See this file's header for the
 field-classification rule and its exceptions.
 """
 function apply_device_base_conversion!(sys::OpenAPISystem)
@@ -321,7 +375,7 @@ function apply_device_base_conversion!(sys::OpenAPISystem)
         isempty(components) && continue
         T = eltype(components)
         for prop in fieldnames(T)
-            classification = _devicebase_classification(T, key, prop)
+            classification = _devicebase_classification(first(components), key, prop)
             classification === :skip && continue
             for po in components
                 resolved = if classification === :dynamic
