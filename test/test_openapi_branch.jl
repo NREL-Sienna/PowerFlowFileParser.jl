@@ -84,7 +84,7 @@ end
     # by the same base_power, so the document should carry PowerModels' raw per-unit
     # `rate_a` verbatim; r/x/b are pu-by-convention and untouched either way.
     pm = fourteen_bus_pm_data()
-    sys = PFP.build_openapi_system(pm; unit_system = "COMPONENT_BASE")
+    sys = PFP.build_openapi_system(pm; power_units = "COMPONENT_BASE")
     d = only(
         v for v in values(pm.data["branch"]) if
         v["f_bus"] == 102 && v["t_bus"] == 104,
@@ -148,11 +148,11 @@ end
     # not necessarily sys_mbase). COMPONENT_BASE divides that back by the same base_power, so
     # the document should carry PowerModels' raw per-unit `rate_a` verbatim. r/x/
     # magnetizing_shunt are always COMPONENT_BASE pu already (their own `parameter_units`/
-    # `admittance_units` discriminators, independent of the document's unit_system) and
+    # `admittance_units` discriminators, independent of the run's power_units) and
     # must not move at all between the two documents.
     pm = fourteen_bus_pm_data()
     sys_natural = PFP.build_openapi_system(pm)
-    sys_device = PFP.build_openapi_system(pm; unit_system = "COMPONENT_BASE")
+    sys_device = PFP.build_openapi_system(pm; power_units = "COMPONENT_BASE")
     d = only(
         v for v in values(pm.data["branch"]) if
         v["f_bus"] == 109 && v["t_bus"] == 104,
@@ -291,7 +291,7 @@ end
     # collaterally stop scaling this circuit's other power fields. controlled_quantity_limits
     # must come out exactly (50.0, 150.0) -- if it were wrongly divided by base_power = 50
     # it would read (1.0, 3.0) instead, a clearly different and wrong number.
-    sys = PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE")
+    sys = PFP.OpenAPISystem(100.0; power_units = "COMPONENT_BASE")
     reg = PFP.get_registry(sys)
     from_id = _register_bus!(sys, 1, "b1")
     to_id = _register_bus!(sys, 2, "b2")

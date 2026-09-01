@@ -80,7 +80,7 @@ end
     # COMPONENT_BASE divides that by the generator's own mbase: pu = natural_MW / mbase =
     # pg * base_conversion = pg * (sys_mbase / mbase) -- i.e. the raw system-per-unit value
     # rescaled onto the device's own base, independent of `mbase`'s absolute value.
-    sys = PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE")
+    sys = PFP.OpenAPISystem(100.0; power_units = "COMPONENT_BASE")
     reg = PFP.get_registry(sys)
     bus = _register_test_bus!(sys)
     d = Dict{String, Any}(
@@ -121,7 +121,7 @@ end
         @test cost.fixed == 0.0
         @test cost.start_up == 0.0
         @test cost.shut_down == 0.0
-        variable = cost.variable
+        variable = cost.variable_operation_cost
         @test variable.power_units == "COMPONENT_BASE"
         function_data = variable.value_curve.value.function_data.value
         @test function_data.quadratic_term == 0.0
@@ -143,7 +143,7 @@ end
         c1, c0 = d["cost"]
         expected_proportional = c1 / sys_mbase
         cost = PFP.get_value(gen, :operation_cost).value
-        fd = cost.variable.value_curve.value.function_data.value
+        fd = cost.variable_operation_cost.value_curve.value.function_data.value
         @test fd.proportional_term ≈ expected_proportional
         @test fd.constant_term == 0.0
         @test cost.fixed == 0.0
@@ -169,7 +169,7 @@ end
 
         cost = PFP.get_value(gen, :operation_cost).value
         @test cost.fixed ≈ fixed
-        fd = cost.variable.value_curve.value.function_data.value
+        fd = cost.variable_operation_cost.value_curve.value.function_data.value
         @test fd.function_type == "PIECEWISE_LINEAR"
         @test length(fd.points) == length(points)
         for (p, (x, y)) in zip(fd.points, points)
@@ -192,8 +192,8 @@ end
     @test cost.fixed == 0.0
     @test cost.start_up == 0.0
     @test cost.shut_down == 0.0
-    @test cost.variable.power_units == "NATURAL_UNITS"
-    fd = cost.variable.value_curve.value.function_data.value
+    @test cost.variable_operation_cost.power_units == "NATURAL_UNITS"
+    fd = cost.variable_operation_cost.value_curve.value.function_data.value
     @test fd.function_type == "LINEAR"
     @test fd.proportional_term == 0.0
     @test fd.constant_term == 0.0
@@ -336,7 +336,7 @@ end
     #   reactive_power_limits = (qmin, qmax) .* thermal_rating
     # COMPONENT_BASE divides every one of those back by the SAME thermal_rating = 50.0,
     # collapsing each to the raw un-multiplied input value.
-    sys = PFP.OpenAPISystem(100.0; unit_system = "COMPONENT_BASE")
+    sys = PFP.OpenAPISystem(100.0; power_units = "COMPONENT_BASE")
     reg = PFP.get_registry(sys)
     bus = _register_test_bus!(sys)
     d = Dict{String, Any}(
@@ -373,7 +373,7 @@ end
     # voltage-control gap (`_vsc_voltage_control_unsupported`), so it is exactly the kind
     # of "not yet classified" field the guard exists for.
     @test_throws ErrorException PFP._devicebase_classification(
-        PFP.PO.TwoTerminalVSCLine,
+        PFP.PO.TwoTerminalVSCLine(),
         "TwoTerminalVSCLine",
         :dc_setpoint_from,
     )

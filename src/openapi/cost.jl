@@ -85,7 +85,7 @@ function make_thermal_cost(gen_name::AbstractString, pm_gen::Dict, sys_mbase::Fl
     if !haskey(pm_gen, "model")
         @warn "Generator cost data not included for Generator: $gen_name"
         return PC.ThermalGenerationCost(;
-            variable = _zero_cost_curve(),
+            variable_operation_cost = _zero_cost_curve(),
             fixed = 0.0,
             start_up = 0.0,
             shut_down = 0.0,
@@ -102,7 +102,7 @@ function make_thermal_cost(gen_name::AbstractString, pm_gen::Dict, sys_mbase::Fl
         throw(IS.DataFormatError("$gen_name: unsupported generator cost model=$model"))
     end
     return PC.ThermalGenerationCost(;
-        variable = PC.CostCurve(;
+        variable_operation_cost = PC.CostCurve(;
             power_units = "COMPONENT_BASE",
             value_curve = PC.ValueCurve(
                 PC.InputOutputCurve(;
@@ -117,10 +117,13 @@ function make_thermal_cost(gen_name::AbstractString, pm_gen::Dict, sys_mbase::Fl
 end
 
 """Curtailment cost for a hydro generator: PSCB never derives one from pm data."""
-make_hydro_cost() = PC.HydroGenerationCost(; variable = _zero_cost_curve(), fixed = 0.0)
+make_hydro_cost() =
+    PC.HydroGenerationCost(; variable_operation_cost = _zero_cost_curve(), fixed = 0.0)
 
 """Operating cost for a renewable generator: PSCB never derives one from pm data."""
-make_renewable_cost() = PC.RenewableGenerationCost(; variable = _zero_cost_curve())
+make_renewable_cost() =
+    PC.RenewableGenerationCost(; variable_operation_cost = _zero_cost_curve())
 
 """Operating cost for an interruptible load: PSCB never derives one from pm data."""
-make_load_cost() = PC.LoadCost(; variable = _zero_cost_curve(), fixed = 0.0)
+make_load_cost() =
+    PC.LoadCost(; variable_operation_cost = _zero_cost_curve(), fixed = 0.0)

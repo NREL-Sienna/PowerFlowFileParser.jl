@@ -69,7 +69,7 @@ already-registered transformer ids by name. Before returning, errors on every no
 pm dict section no reader touched and `KNOWN_UNCONSUMED_PM_SECTIONS` does not excuse, so
 a caller never mistakes a partial document for a complete one.
 
-`unit_system` selects the convention the values are stored in, same as
+`power_units` selects the convention the values are stored in, same as
 [`OpenAPISystem`](@ref): `"NATURAL_UNITS"` (the default) leaves every reader's MW/MVAr/MVA
 values as computed; `"COMPONENT_BASE"` additionally runs [`apply_device_base_conversion!`](@ref)
 over the built document, converting every power-family field into per-unit on the
@@ -80,14 +80,14 @@ reader unconsumed.
 """
 function build_openapi_system(
     pm_data::PowerModelsData;
-    unit_system::AbstractString = "NATURAL_UNITS",
+    power_units::AbstractString = "NATURAL_UNITS",
     kwargs...,
 )
     data = pm_data.data
     if isempty(data["bus"])
         throw(IS.DataFormatError("pm_data has no buses"))
     end
-    sys = OpenAPISystem(Float64(data["baseMVA"]); unit_system = unit_system)
+    sys = OpenAPISystem(Float64(data["baseMVA"]); power_units = power_units)
 
     read_loadzones!(sys, data; kwargs...)
     read_bus!(sys, data; kwargs...)
