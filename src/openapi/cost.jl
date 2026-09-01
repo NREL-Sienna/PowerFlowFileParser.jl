@@ -3,6 +3,21 @@
 # table-driven cost.jl there is no fuel-price/heat-rate separation here: a MATPOWER-shaped
 # generator cost becomes a `CostCurve`, never a `FuelCurve`.
 
+"""The schema's declared `vom_cost` default for `CostCurve`/`FuelCurve`: a zero
+linear input-output curve (Core/common.json defs.CostCurve.properties.vom_cost.default).
+`vom_cost` is schema-`required`, so every emitted curve must carry it explicitly —
+the generated `CostCurve`/`FuelCurve` constructors default it to `nothing`."""
+function _zero_vom_cost()
+    return PC.InputOutputCurve(;
+        function_data = PC.InputOutputCurveFunctionData(
+            PC.LinearFunctionData(;
+                proportional_term = 0.0,
+                constant_term = 0.0,
+            ),
+        ),
+    )
+end
+
 """A `CostCurve` with a zero linear value curve, matching PSCB's `zero(CostCurve)`
 (`NaturalUnit`, not `DeviceBaseUnit`) — the fallback for every generator/load type that
 has no cost data to read from a PowerModels dict."""
@@ -19,6 +34,7 @@ function _zero_cost_curve()
                 ),
             ),
         ),
+        vom_cost = _zero_vom_cost(),
     )
 end
 
@@ -109,6 +125,7 @@ function make_thermal_cost(gen_name::AbstractString, pm_gen::Dict, sys_mbase::Fl
                     function_data = PC.InputOutputCurveFunctionData(function_data),
                 ),
             ),
+            vom_cost = _zero_vom_cost(),
         ),
         fixed = fixed,
         start_up = pm_gen["startup"],
