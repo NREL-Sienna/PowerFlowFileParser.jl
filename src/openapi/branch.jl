@@ -370,7 +370,9 @@ function _branch_type_matpower(d::Dict)
 end
 
 function _branch_type_psse(d::Dict, name::AbstractString)
-    if iszero(d["br_r"]) && iszero(d["br_x"])
+    # A zero-impedance TRANSFORMER record is still a transformer: only a plain branch
+    # with no impedance is the modeled switching device this shortcut is looking for.
+    if !d["transformer"] && iszero(d["br_r"]) && iszero(d["br_x"])
         return :switch
     end
     is_transformer = d["transformer"]
