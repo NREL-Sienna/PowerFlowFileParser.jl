@@ -109,6 +109,25 @@ end
     @test vscline["rated_dc_voltage"] == 150.0
 end
 
+@testset "PSSE VSC converter loss: BLOSS is per-unitized on the DC base kV" begin
+    # BLOSS is kW per DC ampere, so its LinearCurve slope is p.u. power per p.u. current:
+    # BLOSS / base_kV, not BLOSS / (1000 * baseMVA), which is not even dimensionless.
+    # ALOSS/MINLOSS are plain kW and do divide by 1000 * baseMVA. Port of
+    # PowerSystems.jl 11562cc4b.
+    file = joinpath(@__DIR__, "fixtures", "synthetic_v35_vsc_line.raw")
+    pm_data = PowerModelsData(file).data
+    vscline = only(values(pm_data["vscline"]))
+
+    # Both converters carry ALOSS = 1000.0 kW, BLOSS = 1.5 kW/A, MINLOSS = 0.0, on a
+    # 150 kV DC base (the TYPE 1 terminal's DCSET) and baseMVA = 100.0.
+    @test vscline["rated_dc_voltage"] == 150.0
+    for side in ("converter_loss_from", "converter_loss_to")
+        curve = vscline[side]
+        @test IS.get_proportional_term(curve) ≈ 1.5 / 150.0
+        @test IS.get_constant_term(curve) ≈ 1000.0 / (1000.0 * 100.0)
+    end
+end
+
 @testset "PSSE ISW area-slack flag" begin
     file = joinpath(@__DIR__, "fixtures", "v35_area_slack_variants.raw")
     pm_data = @test_logs(
