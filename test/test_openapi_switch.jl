@@ -87,3 +87,36 @@ end
     @test PFP.get_value(gc, :r) == gc_d["r"]
     @test PFP.get_value(gc, :x) == gc_d["x"]
 end
+
+@testset "v35 BRANCH-section switch/breaker keeps its R value (PSY#1702)" begin
+    pm = PFP.PowerModelsData(
+        joinpath(@__DIR__, "fixtures", "synthetic_v35_branch_switch_r.raw"),
+    )
+    data = pm.data
+
+    # Unlike the v35 SWITCHING DEVICE section, legacy BRANCH records flagged as
+    # switches/breakers (CKT starting with '*' or '@') carry an R field, which must be
+    # used verbatim instead of being zeroed out.
+    switch_d = only(values(data["switch"]))
+    @test switch_d["r"] == 2.5e-4
+    @test switch_d["x"] == 1.0e-4
+
+    breaker_d = only(values(data["breaker"]))
+    @test breaker_d["r"] == 7.5e-4
+    @test breaker_d["x"] == 1.0e-4
+
+    sys = PFP.OpenAPISystem(Float64(data["baseMVA"]))
+    PFP.read_loadzones!(sys, data)
+    PFP.read_bus!(sys, data)
+    PFP.read_switch_breaker!(sys, data)
+    switch = only(
+        c for c in PFP.get_components(sys, "DiscreteControlledACBranch") if
+        PFP.get_value(c, :discrete_branch_type) == "SWITCH"
+    )
+    @test PFP.get_value(switch, :r) == 2.5e-4
+    breaker = only(
+        c for c in PFP.get_components(sys, "DiscreteControlledACBranch") if
+        PFP.get_value(c, :discrete_branch_type) == "BREAKER"
+    )
+    @test PFP.get_value(breaker, :r) == 7.5e-4
+end
