@@ -271,6 +271,42 @@ end
           (PFP.get_value(switch, :available) ? "CLOSED" : "OPEN")
 end
 
+@testset "zero-impedance TRANSFORMER stays a transformer, not a switch" begin
+    # The zero-impedance shortcut above must not fire on a TRANSFORMER record: a
+    # transformer with R1-2 = X1-2 = 0 is still a transformer, and misrouting it to
+    # `make_switch_from_zero_impedance_branch!` also slips past the `transformer=true but
+    # detected as a Line` guard, which only checks for `:line`. Port of
+    # PowerSystems.jl 00003f06d.
+    data = fourteen_bus_pm_data().data
+    d = first(v for v in values(data["branch"]) if v["transformer"])
+    @test PFP._branch_type_psse(d, "as_parsed") == :transformer
+
+    zero_z = merge(
+        Dict{String, Any}(k => v for (k, v) in d),
+        Dict{String, Any}("br_r" => 0.0, "br_x" => 0.0, "index" => 998),
+    )
+    @test PFP._branch_type_psse(zero_z, "zero_z_transformer") == :transformer
+
+    synthetic = deepcopy(data)
+    synthetic["branch"] = Dict{String, Any}("998" => zero_z)
+    for key in
+        ("3w_transformer", "dcline", "vscline", "interarea_transfer", "shunt",
+        "switched_shunt", "facts")
+        delete!(synthetic, key)
+    end
+
+    sys = PFP.OpenAPISystem(Float64(synthetic["baseMVA"]))
+    PFP.read_loadzones!(sys, synthetic)
+    PFP.read_bus!(sys, synthetic)
+    PFP.read_branches!(sys, synthetic)
+
+    @test isempty(PFP.get_components(sys, "DiscreteControlledACBranch"))
+    circuit = only(PFP.get_components(sys, "TransformerCircuit"))
+    @test PFP.get_value(circuit, :r) == 0.0
+    @test PFP.get_value(circuit, :x) == 0.0
+    @test !isnothing(_two_winding_transformer_for(sys, circuit))
+end
+
 @testset "TransformerCircuit.controlled_quantity_limits passes through UNSCALED under COMPONENT_BASE for a power-flow-family control_objective" begin
     # Regression: `controlled_quantity_limits`'s schema quantity DOES switch with
     # `control_objective` (pu for VOLTAGE-family objectives, MW/MVAr for ACTIVE_POWER_FLOW/
