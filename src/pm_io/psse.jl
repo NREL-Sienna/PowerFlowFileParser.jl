@@ -2135,13 +2135,16 @@ function _psse2pm_dcline!(pm_data::Dict, pti_data::Dict, import_all::Bool)
             sub_data["ac_setpoint_from"] = from_bus["ACSET"]
             sub_data["ac_setpoint_to"] = to_bus["ACSET"]
 
-            # ALOSS, MINLOSS in kW, and BLOSS in kW/A. Divide by a 1000 to transform into MW, and divide by baseMVA to normalize to per-unit.
+            # ALOSS and MINLOSS are constant losses in kW: /1000 -> MW, /baseMVA -> p.u.
+            # BLOSS is kW per DC ampere, so its p.u. slope is per p.u. current, not per
+            # p.u. power: P_loss[MW] = BLOSS * I_A / 1000 with
+            # I_A = I_pu * 1000 * baseMVA / base_kV, giving P_loss[p.u.] = (BLOSS / base_kV) * I_pu.
             sub_data["converter_loss_from"] = LinearCurve(
-                from_bus["BLOSS"] / (1000.0 * baseMVA),
+                from_bus["BLOSS"] / base_voltage,
                 (from_bus["ALOSS"] + from_bus["MINLOSS"]) / (1000.0 * baseMVA),
             )
             sub_data["converter_loss_to"] = LinearCurve(
-                to_bus["BLOSS"] / (1000.0 * baseMVA),
+                to_bus["BLOSS"] / base_voltage,
                 (to_bus["ALOSS"] + to_bus["MINLOSS"]) / (1000.0 * baseMVA),
             )
 
